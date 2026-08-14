@@ -1,0 +1,57 @@
+{
+  "name": "orca-plugin-pizhu",
+  "description": "Annotation plugin for Orca Note: wavy-underline marks with numbered badges, hover preview, click-to-edit cards, and a summary panel with jump navigation.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "kx1356",
+  "keywords": [
+    "orca-note",
+    "orca-plugin",
+    "annotation",
+    "批注",
+    "highlight",
+    "markup",
+    "reading"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kx1356/orca-plugin-pizhu.git"
+  },
+  "homepage": "https://github.com/kx1356/orca-plugin-pizhu",
+  "bugs": {
+    "url": "https://github.com/kx1356/orca-plugin-pizhu/issues"
+  },
+  "orcaNoteMarketplace": {
+    "id": "orca-pizhu",
+    "name": "Pizhu Annotation",
+    "category": "Productivity",
+    "artifactName": "orca-pizhu",
+    "translations": {
+      "zh": {
+        "name": "批注",
+        "description": "选中文字添加批注：波浪线 + 角标数字标记，悬停预览，点击编辑或删除，侧边面板汇总当前文档全部批注并可点击跳转。",
+        "category": "效率工具"
+      }
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "check:marketplace": "node scripts/validate-marketplace-package.mjs",
+    "package:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1 -DryRun"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "valtio": "^1.13.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "rollup-plugin-external-globals": "^0.9.2",
+    "typescript": "^5.2.2",
+    "vite": "^5.2.0"
+  }
+}
