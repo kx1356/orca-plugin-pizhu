@@ -158,6 +158,31 @@ export function AnnotationCard() {
     if (card.visible) autoResize()
   })
 
+  const cardRef = useRef(null) as any
+  // 卡片不超出视口：底部越界则上移，顶部越界则下移到顶，确保操作按钮始终可见
+  useEffect(() => {
+    if (!card.visible) return
+    const el = cardRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 8
+    if (r.bottom > window.innerHeight - m) {
+      el.style.top = `${Math.max(m, window.innerHeight - r.height - m)}px`
+    } else if (r.top < m) {
+      el.style.top = `${m}px`
+    }
+  })
+
+  // Esc 关闭编辑卡（输入框内 Esc 同样生效）
+  useEffect(() => {
+    if (!card.visible) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAnnCard()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [card.visible])
+
   if (!card.visible || card.blockId == null) return null
 
   const block = blocks[card.blockId] as Block | undefined
@@ -200,24 +225,27 @@ export function AnnotationCard() {
 
   return (
     <div
+      ref={cardRef}
       className="pizhu-card"
       style={style}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="pizhu-card-original" title="原文">
-        {ann.v}
+      <div className="pizhu-card-scroll">
+        <div className="pizhu-card-original" title="原文">
+          {ann.v}
+        </div>
+        <textarea
+          ref={taRef}
+          className="pizhu-card-input"
+          rows={1}
+          placeholder="写下批注…"
+          value={draft || ann.note}
+          onChange={(e) => setDraft(e.target.value)}
+          onInput={autoResize}
+          autoFocus
+        />
       </div>
-      <textarea
-        ref={taRef}
-        className="pizhu-card-input"
-        rows={1}
-        placeholder="写下批注…"
-        value={draft || ann.note}
-        onChange={(e) => setDraft(e.target.value)}
-        onInput={autoResize}
-        autoFocus
-      />
       <div className="pizhu-card-actions">
         <button className="pizhu-card-btn pizhu-card-btn-danger" onClick={remove}>
           删除

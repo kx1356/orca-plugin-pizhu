@@ -36,9 +36,9 @@ export const PIZHU_CSS = `
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
   padding: 8px 10px;
   max-width: 280px;
-  max-height: 140px;
+  max-height: 220px;
   overflow: auto;
-  font-size: 12.5px;
+  font-size: var(--orca-fontsize, 15px);
   line-height: 1.6;
   color: var(--orca-color-text-1, #333);
   pointer-events: auto;
@@ -55,12 +55,20 @@ export const PIZHU_CSS = `
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: var(--orca-fontsize, 15px);
   width: min(520px, 90vw);
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+}
+.pizhu-card-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .pizhu-card-original {
-  font-size: 12px;
+  font-size: var(--orca-fontsize, 15px);
   color: var(--orca-color-text-2, #777);
   text-decoration: underline wavy;
   text-decoration-color: rgba(255, 170, 60, 0.85);
@@ -78,7 +86,7 @@ export const PIZHU_CSS = `
   border: 1px solid var(--orca-color-border, rgba(0,0,0,0.15));
   border-radius: 6px;
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: var(--orca-fontsize, 15px);
   line-height: 1.5;
   background: var(--orca-color-bg-1, #fff);
   color: var(--orca-color-text-1, #333);
@@ -95,6 +103,7 @@ export const PIZHU_CSS = `
   align-items: center;
   margin-top: 10px;
   gap: 6px;
+  flex: none;
 }
 .pizhu-card-spacer {
   flex: 1;
