@@ -27,6 +27,7 @@ export default function AnnotationInline({
   index: number
 }) {
   const { blocks } = useSnapshot(orca.state)
+  const annCardSnap = useSnapshot(annCard)
   const block = blocks[blockId] as Block | undefined
   const ann = isAnn(data) ? data : null
 
@@ -50,6 +51,11 @@ export default function AnnotationInline({
   if (!ann) return <span className="orca-inline">{String(data.v ?? "")}</span>
 
   const showPreview = (e: React.MouseEvent) => {
+    // 编辑批注卡打开时，悬停预览失效，避免与编辑卡重叠干扰
+    if (annCardSnap.visible) {
+      setPreviewPos(null)
+      return
+    }
     // 鼠标进入标记/浮窗：清除隐藏定时器
     if (hideTimer.current != null) {
       clearTimeout(hideTimer.current)
@@ -109,7 +115,6 @@ export default function AnnotationInline({
         onClick={handleClick}
         onMouseEnter={showPreview}
         onMouseLeave={scheduleHide}
-        title="批注，点击查看"
       >
         <span className="pizhu-ann-text">{ann.v}</span>
         <sup className="pizhu-ann-badge">{ordinal}</sup>
@@ -140,6 +145,18 @@ export function AnnotationCard() {
   const card = useSnapshot(annCard)
   const { blocks } = useSnapshot(orca.state)
   const [draft, setDraft] = useState("")
+  const taRef = useRef(null) as any
+
+  // 编辑框根据文字内容自动伸缩高度（打开与输入时生效）
+  const autoResize = () => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = "auto"
+    ta.style.height = `${ta.scrollHeight}px`
+  }
+  useEffect(() => {
+    if (card.visible) autoResize()
+  })
 
   if (!card.visible || card.blockId == null) return null
 
@@ -192,11 +209,13 @@ export function AnnotationCard() {
         {ann.v}
       </div>
       <textarea
+        ref={taRef}
         className="pizhu-card-input"
-        rows={3}
+        rows={1}
         placeholder="写下批注…"
         value={draft || ann.note}
         onChange={(e) => setDraft(e.target.value)}
+        onInput={autoResize}
         autoFocus
       />
       <div className="pizhu-card-actions">

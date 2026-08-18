@@ -1,0 +1,156 @@
+/* ============================================================
+   Orca Trash Bin — 回收站浮层与菜单样式
+   提炼自 orca-neo 主题 v2.0.0
+   颜色变量映射到 Orca 内置变量，跟随主题明暗
+   ============================================================ */
+
+/* 顶栏菜单项的数量徽标 */
+.orca-trash-menu-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  margin-left: 6px;
+  border-radius: 8px;
+  background: var(--orca-color-primary-5, #6a85e3);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 浮层背景 */
+.orca-trash-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #00000059;
+}
+
+/* 浮层主体 */
+.orca-trash-pop {
+  z-index: 2147483000;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--orca-color-bg-1);
+  color: var(--orca-color-text-1);
+  border: 1px solid var(--orca-color-separator);
+  box-shadow: var(--orca-shadow-menu, 0 12px 40px rgba(0, 0, 0, .35));
+  font-family: var(--orca-fontfamily-ui, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.orca-trash-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.orca-trash-head-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.orca-trash-sort {
+  padding: 4px 10px;
+  border: 1px solid var(--orca-color-separator);
+  border-radius: 6px;
+  background: var(--orca-color-bg-2);
+  color: var(--orca-color-text-2);
+  font-family: var(--orca-fontfamily-ui, inherit);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.orca-trash-sort:hover { background: var(--orca-color-bg-3); }
+
+.orca-trash-close {
+  cursor: pointer;
+  opacity: .6;
+  font-size: 12px;
+}
+.orca-trash-close:hover { opacity: 1; }
+
+.orca-trash-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 40px;
+}
+.orca-trash-empty {
+  padding: 18px 8px;
+  text-align: center;
+  opacity: .5;
+}
+
+.orca-trash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  border-top: 1px solid var(--orca-color-separator);
+}
+.orca-trash-row:first-child { border-top: none; }
+
+.orca-trash-meta {
+  flex: 1;
+  min-width: 0;
+}
+.orca-trash-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orca-trash-sub {
+  font-size: 12px;
+  opacity: .55;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.orca-trash-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.orca-trash-act {
+  padding: 5px 12px;
+  border: 1px solid var(--orca-color-separator);
+  border-radius: 6px;
+  background: var(--orca-color-bg-2);
+  color: var(--orca-color-text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.orca-trash-act:hover { background: var(--orca-color-bg-3); }
+.orca-trash-act:disabled { opacity: .45; cursor: default; }
+.orca-trash-act.danger {
+  color: #ef4444;
+  border-color: #ef444466;
+}
+
+.orca-trash-foot {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--orca-color-separator);
+  text-align: right;
+}

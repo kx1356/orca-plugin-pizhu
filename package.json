@@ -1,7 +1,7 @@
 {
   "name": "orca-plugin-pizhu",
-  "description": "Annotation plugin for Orca Note: wavy-underline marks with numbered badges, hover preview, click-to-edit cards, and a summary panel with jump navigation.",
-  "version": "0.2.0",
+  "description": "All-in-one toolbox plugin for Orca Note: annotation (wavy underline + numbered badges + hover preview + edit/delete cards + side summary panel), editor tab bar (click to switch, drag to reorder and split panels, vertical mode, pinned tabs), and trash bin (deleted pages auto-saved, restorable or permanently purged). Selected features are toggleable in settings.",
+  "version": "3.0.0",
   "license": "MIT",
   "author": "kx1356",
   "keywords": [
@@ -11,7 +11,12 @@
     "批注",
     "highlight",
     "markup",
-    "reading"
+    "reading",
+    "tab-bar",
+    "page-tabs",
+    "trash",
+    "回收站",
+    "页签"
   ],
   "repository": {
     "type": "git",
@@ -23,13 +28,13 @@
   },
   "orcaNoteMarketplace": {
     "id": "orca-pizhu",
-    "name": "Pizhu Annotation",
+    "name": "Pizhu Toolbox",
     "category": "Productivity",
     "artifactName": "orca-pizhu",
     "translations": {
       "zh": {
-        "name": "批注",
-        "description": "选中文字添加批注：波浪线 + 角标数字标记，悬停预览，点击编辑或删除，侧边面板汇总当前文档全部批注并可点击跳转。",
+        "name": "批注工具箱",
+        "description": "虎鲸笔记三合一工具箱，均可在设置中开关：①批注：选中文字添加波浪线 + 角标数字，悬停预览、点击编辑/删除、侧边面板汇总跳转；②编辑器页签栏：点击切换、拖拽排序/分栏、垂直模式、固定页签；③回收站：删除页面自动存入，可恢复或彻底删除。",
         "category": "效率工具"
       }
     }

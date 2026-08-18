@@ -17,7 +17,7 @@ export const PIZHU_CSS = `
   display: inline-block;
   font-size: 0.62em;
   line-height: 1;
-  color: var(--orca-color-text-2, #8a8f98);
+  color: #3a8fe0;
   background: transparent;
   margin-left: 1px;
   transform: translateY(-0.2em);
@@ -25,7 +25,7 @@ export const PIZHU_CSS = `
   user-select: none;
 }
 .pizhu-ann:hover .pizhu-ann-badge {
-  color: var(--orca-color-text-1, #555);
+  color: #2f7bd9;
 }
 
 /* ===== 悬停预览浮窗 ===== */
@@ -56,6 +56,8 @@ export const PIZHU_CSS = `
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
   padding: 12px 14px;
   font-size: 13px;
+  width: min(520px, 90vw);
+  box-sizing: border-box;
 }
 .pizhu-card-original {
   font-size: 12px;
@@ -82,6 +84,7 @@ export const PIZHU_CSS = `
   color: var(--orca-color-text-1, #333);
   resize: vertical;
   font-family: inherit;
+  min-height: 72px;
 }
 .pizhu-card-input:focus {
   outline: none;
