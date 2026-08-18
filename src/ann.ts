@@ -13,6 +13,8 @@ export interface AnnFragment extends ContentFragment {
   texts: ContentFragment[]
   created: number
   modified?: number
+  /** 创建时从 DOM 捕获的原文样式快照（字号/颜色等），渲染时还原，避免批注后文本变默认样式 */
+  domStyle?: Record<string, string>
 }
 
 export function isAnn(f: ContentFragment | undefined | null): f is AnnFragment {

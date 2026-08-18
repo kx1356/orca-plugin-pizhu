@@ -34,6 +34,33 @@ function findAnn(content: ContentFragment[], annId: string): AnnFragment | null 
   return found != null && isAnn(found) ? found : null
 }
 
+/**
+ * 从 DOM 捕获选中文字的实际样式快照（字号/颜色/粗斜体）。
+ * 用计算样式而非内部格式结构，任何字号存储方式都能正确还原。
+ */
+function captureSelectionStyle(): Record<string, string> | undefined {
+  try {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return undefined
+    const range = sel.getRangeAt(0)
+    const container = range.startContainer
+    const el =
+      container.nodeType === Node.ELEMENT_NODE
+        ? (container as HTMLElement)
+        : container.parentElement
+    if (!el) return undefined
+    const cs = window.getComputedStyle(el)
+    const style: Record<string, string> = {}
+    if (cs.fontSize) style.fontSize = cs.fontSize
+    if (cs.color) style.color = cs.color
+    if (cs.fontWeight && cs.fontWeight !== "normal") style.fontWeight = cs.fontWeight
+    if (cs.fontStyle && cs.fontStyle !== "normal") style.fontStyle = cs.fontStyle
+    return Object.keys(style).length > 0 ? style : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** 弹出批注输入（自绘 DOM 浮层，Promise 化），返回 null 表示取消 */
 function promptNote(initial: string, text: string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -123,6 +150,10 @@ export function registerCommands(pluginName: string) {
           return null
         }
 
+        // 捕获选中文字的实际样式（字号等）。必须在弹输入框之前：
+        // 浮层弹出会抢走选区，之后再读 getSelection 只能拿到默认样式。
+        const domStyle = captureSelectionStyle()
+
         const note = await promptNote("", text)
         if (note == null) return null // 用户取消
 
@@ -133,6 +164,7 @@ export function registerCommands(pluginName: string) {
           note,
           texts: fragments,
           created: Date.now(),
+          ...(domStyle ? { domStyle } : {}),
         }
         const newContent = replaceRange(content, start, end, ann)
         await setBlockContent(cursor, blockId, newContent)

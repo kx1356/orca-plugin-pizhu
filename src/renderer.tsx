@@ -86,12 +86,26 @@ export default function AnnotationInline({
     openAnnCard(blockId as DbId, ann.id, rect.left, rect.bottom + 6)
   }
 
+  // 还原批注创建时的原文样式（字号/颜色/粗斜体），防御性解析
+  const textStyle: React.CSSProperties = {}
+  try {
+    if (ann.domStyle) {
+      if (ann.domStyle.fontSize) textStyle.fontSize = ann.domStyle.fontSize
+      if (ann.domStyle.color) textStyle.color = ann.domStyle.color
+      if (ann.domStyle.fontWeight) textStyle.fontWeight = ann.domStyle.fontWeight
+      if (ann.domStyle.fontStyle) textStyle.fontStyle = ann.domStyle.fontStyle
+    }
+  } catch {
+    /* 忽略样式解析异常，不影响批注功能 */
+  }
+
   return (
     <>
       <span
         ref={elRef}
         className="orca-inline pizhu-ann"
         data-ann-id={ann.id}
+        style={textStyle}
         onClick={handleClick}
         onMouseEnter={showPreview}
         onMouseLeave={scheduleHide}
