@@ -7,8 +7,10 @@
 
 let pluginName = "";
 
-// ---- 后端 hook ----
-let originalBackend = null;   // 被 hook 前的原始 invokeBackend
+// ---- 后端 hook（链式安全：卸载时只摘自己的 wrapper，不覆盖其他插件后装的 hook）----
+let hookPrev = null;     // 安装 hook 前的 invokeBackend 原引用（即链上前一层）
+let hookSelf = null;     // 本模块的 wrapper，用于识别自己是否在链顶
+let hookActive = false;  // wrapper 是否执行拦截（即使被外层插件包裹，也能立即停用）
 let cleanupTimer = null;      // 过期清理定时器
 
 // ---- React 全局 ----
@@ -37,32 +39,46 @@ function retentionDays() {
 // ============================================================
 
 function backend() {
-  return originalBackend || orca.invokeBackend.bind(orca);
+  // 绕过自身拦截直接调用后端：优先用 hook 前的原函数，未安装 hook 时用当前函数
+  return (name, ...args) => (hookPrev || orca.invokeBackend).call(orca, name, ...args);
 }
 
 // 拦截 invokeBackend 的 delete-blocks：删除前先把顶层块快照进回收站
 function installHook() {
-  if (originalBackend) return;
-  originalBackend = orca.invokeBackend.bind(orca);
-  orca.invokeBackend = async (name, ...args) => {
-    if (name !== "delete-blocks") return originalBackend(name, ...args);
-    try {
-      return await interceptDelete(args);
-    } catch (e) {
-      console.error("[TRASH] 拦截异常，已取消删除以保数据：", e);
+  hookActive = true;
+  // 已在链顶则无需重复包装（重复启用场景）
+  if (orca.invokeBackend === hookSelf) return;
+  hookPrev = orca.invokeBackend;
+  if (!hookSelf) {
+    hookSelf = async (name, ...args) => {
+      // 已停用或非删除命令：原样透传
+      if (!hookActive || name !== "delete-blocks") {
+        return hookPrev.call(orca, name, ...args);
+      }
       try {
-        orca.notify?.("error", `回收站：删除已被拦截（${e?.message ?? e}），页面未删除以保数据。可重试或检查存储。`, { title: "回收站" });
-      } catch { /* ignore */ }
-      return [];
-    }
-  };
+        return await interceptDelete(args);
+      } catch (e) {
+        console.error("[TRASH] 拦截异常，已取消删除以保数据：", e);
+        try {
+          orca.notify?.("error", `回收站：删除已被拦截（${e?.message ?? e}），页面未删除以保数据。可重试或检查存储。`, { title: "回收站" });
+        } catch { /* ignore */ }
+        return [];
+      }
+    };
+  }
+  orca.invokeBackend = hookSelf;
 }
 
 function uninstallHook() {
-  if (originalBackend) {
-    orca.invokeBackend = originalBackend;
-    originalBackend = null;
+  // 先停用拦截（即使 wrapper 被其他插件包裹在链里，也不再拦截）
+  hookActive = false;
+  // 仅当自己是链顶时才恢复原引用，避免覆盖其他插件后装的 hook
+  if (hookSelf && orca.invokeBackend === hookSelf) {
+    orca.invokeBackend = hookPrev;
+    hookPrev = null;
+    hookSelf = null;
   }
+  // 非链顶：wrapper 保留但已透传，待外层插件卸载后链条自然断开
 }
 
 async function interceptDelete(args) {

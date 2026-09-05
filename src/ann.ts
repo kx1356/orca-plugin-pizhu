@@ -157,8 +157,11 @@ export interface AnnEntry {
 
 export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
   const entries: AnnEntry[] = []
-  const visit = (id: DbId | undefined) => {
-    if (id == null) return
+  const seen = new Set<DbId>()
+  const MAX_DEPTH = 1000 // 防御异常数据（成环/超深）导致死循环
+  const visit = (id: DbId | undefined, depth: number) => {
+    if (id == null || depth > MAX_DEPTH || seen.has(id)) return
+    seen.add(id)
     const block = orca.state.blocks[id]
     if (block == null) return
     const content = block.content ?? []
@@ -169,9 +172,9 @@ export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
         entries.push({ ann: f, block, ordinal: ord })
       }
     })
-    ;(block.children ?? []).forEach((cid) => visit(cid))
+    ;(block.children ?? []).forEach((cid) => visit(cid, depth + 1))
   }
-  visit(rootBlockId)
+  visit(rootBlockId, 0)
   return entries
 }
 

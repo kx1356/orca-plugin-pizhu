@@ -1,25 +1,25 @@
 /* ============================================================
-   Orca Tab Bar — 缓存编辑器页签
-   提炼自 orca-neo 主题 v2.0.0
+   Orca Tab Bar — 缓存编辑器页签（Fluent 2 风格）
    颜色变量全部映射到 Orca 内置变量，跟随主题明暗
    ============================================================ */
 
 /* ---- 启用开关：body 挂 orca-tabbar-on ---- */
 body.orca-tabbar-on {
-  --orca-tabbar-h: 34px;
-  --orca-tabbar-accent: var(--orca-color-primary-5);
-  --orca-tabbar-bg: var(--orca-color-bg-1);
-  --orca-tabbar-text: var(--orca-color-text-2);
-  --orca-tabbar-border: var(--orca-color-separator);
-  --orca-tabbar-radius: var(--orca-radius-md);
-  --orca-tabbar-transition: .15s ease;
+  --orca-tabbar-h: 38px;
+  --orca-tabbar-accent: var(--orca-color-primary-5, #0F6CBD);
+  --orca-tabbar-bg: var(--orca-color-bg-1, #ffffff);
+  --orca-tabbar-text: var(--orca-color-text-2, #616161);
+  --orca-tabbar-border: var(--orca-color-separator, rgba(0, 0, 0, 0.10));
+  --orca-tabbar-radius: 6px;
+  --orca-tabbar-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", var(--orca-fontfamily-ui, system-ui), sans-serif;
+  --orca-tabbar-transition: 120ms cubic-bezier(0.33, 0, 0.67, 1);
 }
 /* 主区域让位，给页签条腾出空间 */
 body.orca-tabbar-on #main {
   margin-top: calc(var(--orca-height-headbar) + var(--orca-tabbar-h));
 }
 
-/* ---- 页签条（横排，默认） ---- */
+/* ---- 页签条：Fluent 亚克力材质（横排，默认） ---- */
 .orca-tabbar {
   position: fixed;
   top: var(--orca-height-headbar);
@@ -29,16 +29,19 @@ body.orca-tabbar-on #main {
   z-index: calc(var(--orca-zindex-headbar) - 1);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 0 8px;
-  background-color: var(--orca-tabbar-bg);
+  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+  backdrop-filter: blur(20px) saturate(125%);
   border-bottom: 1px solid color-mix(in oklch, var(--orca-tabbar-border) 55%, transparent);
+  font-family: var(--orca-tabbar-font);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-/* ---- 单个页签 ---- */
+/* ---- 单个页签：Fluent 填充式激活态 ---- */
 .orca-tab {
   position: relative;
   display: inline-flex;
@@ -46,9 +49,9 @@ body.orca-tabbar-on #main {
   gap: 6px;
   flex: 0 0 auto;
   max-width: 220px;
-  height: calc(var(--orca-tabbar-h) - 8px);
+  height: calc(var(--orca-tabbar-h) - 10px);
   padding: 0 6px 0 10px;
-  border-radius: var(--orca-tabbar-radius, 6px);
+  border-radius: var(--orca-tabbar-radius);
   font-size: 13px;
   line-height: 1;
   color: var(--orca-tabbar-text, #444);
@@ -56,77 +59,57 @@ body.orca-tabbar-on #main {
   white-space: nowrap;
   user-select: none;
   background-color: transparent;
-  transition: background-color var(--orca-tabbar-transition, .15s);
+  transition: background-color var(--orca-tabbar-transition), box-shadow var(--orca-tabbar-transition);
 }
 .orca-tab:hover {
-  background-color: color-mix(in oklch, var(--orca-tabbar-accent) 12%, transparent);
+  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 6%, transparent);
 }
 
-/* 激活页签（聚焦面板的当前项）：灰色玻璃浮雕，文字跟随主题色 */
+/* 激活页签（聚焦面板的当前项）：Fluent 填充表面 + 细描边 + 微阴影 */
 .orca-tab-active {
-  position: relative;
-  isolation: isolate;
-  color: var(--orca-tabbar-text, #333);
+  color: var(--orca-color-text-1, #242424);
   font-weight: 600;
-  background-color: rgba(120, 124, 132, .28);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
-  backdrop-filter: blur(14px) saturate(180%);
-  box-shadow: none;
-  transition: background-color var(--orca-tabbar-transition, .15s), box-shadow var(--orca-tabbar-transition, .15s);
-}
-.orca-tab-active::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .04) 45%, #fff0 70%);
+  background-color: var(--orca-tabbar-bg);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--orca-color-text-1, #242424) 9%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.10);
 }
 .orca-tab-active:hover {
-  background-color: rgba(140, 144, 152, .34);
+  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 3%, var(--orca-tabbar-bg));
 }
 
-/* 当前页签（非聚焦面板） */
+/* 当前页签（非聚焦面板）：弱化表面 */
 .orca-tab-current {
   position: relative;
-  isolation: isolate;
   font-weight: 600;
-  background-color: #ffffff57;
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  backdrop-filter: blur(10px) saturate(140%);
-  box-shadow: inset 0 0 0 .5px #ffffff80, inset 0 1px #fff9;
+  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orca-color-text-1, #242424) 6%, transparent);
 }
-.orca-tab-current:hover { background-color: #ffffff80; }
-
-/* 深色模式覆盖 */
-@media (prefers-color-scheme: dark) {
-  .orca-tab-active {
-    color: var(--orca-tabbar-text, #ddd);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, .2);
-    background-color: rgba(150, 154, 162, .22);
-    box-shadow: none;
-  }
-  .orca-tab-active::before { background: linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .03) 45%, #fff0 70%); }
-  .orca-tab-active:hover { background-color: rgba(165, 169, 178, .28); }
-  .orca-tab-current { background-color: #ffffff12; box-shadow: inset 0 0 0 .5px #ffffff1f, inset 0 1px #ffffff29; }
-  .orca-tab-current:hover { background-color: #ffffff1f; }
+.orca-tab-current:hover {
+  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 75%, transparent);
 }
 
 /* 分隔线 / 文字 / 图标 */
 .orca-tab-sep {
   flex: 0 0 auto;
   width: 1px;
-  height: calc(var(--orca-tabbar-h) - 16px);
-  margin: 0 4px;
-  background-color: var(--orca-tabbar-border, rgba(128, 128, 128, .3));
+  height: calc(var(--orca-tabbar-h) - 18px);
+  margin: 0 5px;
+  border-radius: 1px;
+  background-color: var(--orca-tabbar-border, rgba(128, 128, 128, 0.3));
 }
 .orca-tab-label { overflow: hidden; text-overflow: ellipsis; }
-.orca-tab-icon { flex: 0 0 auto; font-size: 13px; opacity: .65; }
+.orca-tab-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  opacity: 0.65;
+  transition: opacity var(--orca-tabbar-transition);
+}
+.orca-tab:hover .orca-tab-icon { opacity: 0.85; }
 .orca-tab-active .orca-tab-icon { opacity: 1; }
 
 /* 拖拽状态 */
-.orca-tab-dragging { opacity: .45; }
+.orca-tab-dragging { opacity: 0.45; }
 .orca-tab-insert { box-shadow: inset 2px 0 0 0 var(--orca-tabbar-accent); }
 
 /* 拖出分栏提示块 */
@@ -135,7 +118,7 @@ body.orca-tabbar-on #main {
   z-index: var(--orca-zindex-modal, 9999);
   pointer-events: none;
   opacity: 0;
-  border-radius: var(--orca-tabbar-radius, 6px);
+  border-radius: 8px;
   background-color: color-mix(in oklch, var(--orca-tabbar-accent) 18%, transparent);
   border: 1.5px solid var(--orca-tabbar-accent);
   transition: opacity .12s, left .12s, top .12s, width .12s, height .12s;
@@ -148,29 +131,29 @@ body.orca-tabbar-on #main {
   font-size: 12px;
   line-height: 1;
   opacity: 0;
-  border-radius: 4px;
+  border-radius: var(--orca-tabbar-radius);
   padding: 0 3px;
-  transition: opacity .15s, background-color .15s;
+  transition: opacity var(--orca-tabbar-transition), background-color var(--orca-tabbar-transition);
 }
-.orca-tab:hover .orca-tab-pin { opacity: .5; }
-.orca-tab-pin:hover { opacity: 1; background-color: color-mix(in oklch, var(--orca-tabbar-accent) 14%, transparent); }
+.orca-tab:hover .orca-tab-pin { opacity: 0.55; }
+.orca-tab-pin:hover { opacity: 1; background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 8%, transparent); }
 
 /* 关闭按钮：常显 */
 .orca-tab-close {
   flex: 0 0 auto;
   font-size: 15px;
   line-height: 1;
-  opacity: .5;
-  border-radius: 4px;
+  opacity: 0.55;
+  border-radius: var(--orca-tabbar-radius);
   padding: 0 3px;
-  transition: opacity .15s, background-color .15s;
+  transition: opacity var(--orca-tabbar-transition), background-color var(--orca-tabbar-transition);
 }
-.orca-tab-close:hover { opacity: 1; background-color: color-mix(in oklch, var(--orca-tabbar-accent) 14%, transparent); }
+.orca-tab-close:hover { opacity: 1; background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 8%, transparent); }
 
 /* 固定页签：pin 实心常显、靠右，作为固定状态标识 */
 .orca-tab-pinned .orca-tab-pin {
   margin-left: auto;
-  opacity: .9;
+  opacity: 0.9;
   color: var(--orca-tabbar-accent);
 }
 .orca-tab-pinned .orca-tab-pin:hover { opacity: 1; background-color: color-mix(in oklch, var(--orca-tabbar-accent) 14%, transparent); }
@@ -178,7 +161,7 @@ body.orca-tabbar-on #main {
 /* 页签条滚动条 */
 .orca-tabbar::-webkit-scrollbar { height: 4px; width: 4px; }
 .orca-tabbar::-webkit-scrollbar-thumb {
-  background-color: var(--orca-tabbar-border, rgba(128, 128, 128, .35));
+  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 20%, transparent);
   border-radius: 4px;
 }
 
@@ -205,7 +188,7 @@ body.orca-tabbar-vertical .orca-tabbar {
   border-bottom: none;
   border-right: 1px solid color-mix(in oklch, var(--orca-color-separator) 65%, transparent);
 }
-body.orca-tabbar-vertical .orca-tab { width: 100%; max-width: none; height: 28px; }
+body.orca-tabbar-vertical .orca-tab { width: 100%; max-width: none; height: 30px; }
 body.orca-tabbar-vertical .orca-tab-label { flex: 1 1 auto; min-width: 0; }
 body.orca-tabbar-vertical .orca-tab-close { margin-left: auto; }
 body.orca-tabbar-vertical .orca-tab-sep { width: auto; height: 1px; margin: 3px 6px; }
@@ -227,7 +210,8 @@ body.orca-tabbar-vertical.orca-tabbar-on .orca-tabbar-resize {
   content: "";
   position: absolute;
   inset: 0 2px;
+  border-radius: 2px;
   background-color: transparent;
-  transition: background-color .15s;
+  transition: background-color var(--orca-tabbar-transition);
 }
 .orca-tabbar-resize:hover::after { background-color: var(--orca-tabbar-accent); }

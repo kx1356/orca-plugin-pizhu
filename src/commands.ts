@@ -34,28 +34,56 @@ function findAnn(content: ContentFragment[], annId: string): AnnFragment | null 
   return found != null && isAnn(found) ? found : null
 }
 
+/** 取节点对应的元素（文本节点取父元素） */
+function nodeElement(node: Node | null): HTMLElement | null {
+  if (node == null) return null
+  return node.nodeType === Node.ELEMENT_NODE
+    ? (node as HTMLElement)
+    : node.parentElement
+}
+
+/** 读取单个元素的关键文字样式（字号/颜色/粗斜体） */
+function readStyle(el: HTMLElement): Record<string, string> | undefined {
+  const cs = window.getComputedStyle(el)
+  const style: Record<string, string> = {}
+  if (cs.fontSize) style.fontSize = cs.fontSize
+  if (cs.color) style.color = cs.color
+  if (cs.fontWeight && cs.fontWeight !== "normal") style.fontWeight = cs.fontWeight
+  if (cs.fontStyle && cs.fontStyle !== "normal") style.fontStyle = cs.fontStyle
+  return Object.keys(style).length > 0 ? style : undefined
+}
+
+/** 关键样式键是否一致 */
+function sameStyle(a: Record<string, string>, b: Record<string, string>): boolean {
+  return (
+    a.fontSize === b.fontSize &&
+    a.color === b.color &&
+    a.fontWeight === b.fontWeight &&
+    a.fontStyle === b.fontStyle
+  )
+}
+
 /**
  * 从 DOM 捕获选中文字的实际样式快照（字号/颜色/粗斜体）。
  * 用计算样式而非内部格式结构，任何字号存储方式都能正确还原。
+ * 选区首尾样式不一致（跨样式选区，如普通文字+行内代码）时视为捕获不到，
+ * 保持块级继承，避免把起点样式错误覆盖到整段选区。
  */
 function captureSelectionStyle(): Record<string, string> | undefined {
   try {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return undefined
     const range = sel.getRangeAt(0)
-    const container = range.startContainer
-    const el =
-      container.nodeType === Node.ELEMENT_NODE
-        ? (container as HTMLElement)
-        : container.parentElement
-    if (!el) return undefined
-    const cs = window.getComputedStyle(el)
-    const style: Record<string, string> = {}
-    if (cs.fontSize) style.fontSize = cs.fontSize
-    if (cs.color) style.color = cs.color
-    if (cs.fontWeight && cs.fontWeight !== "normal") style.fontWeight = cs.fontWeight
-    if (cs.fontStyle && cs.fontStyle !== "normal") style.fontStyle = cs.fontStyle
-    return Object.keys(style).length > 0 ? style : undefined
+    const startEl = nodeElement(range.startContainer)
+    if (!startEl) return undefined
+    const start = readStyle(startEl)
+    if (start == null) return undefined
+    const endEl = nodeElement(range.endContainer)
+    if (endEl != null && endEl !== startEl) {
+      const end = readStyle(endEl)
+      if (end != null && !sameStyle(start, end)) return undefined
+    }
+    return start
   } catch {
     return undefined
   }
@@ -66,20 +94,37 @@ function promptNote(initial: string, text: string): Promise<string | null> {
   return new Promise((resolve) => {
     const mask = document.createElement("div")
     mask.className = "pizhu-prompt-mask"
-    mask.innerHTML = `
-      <div class="pizhu-prompt-card">
-        <div class="pizhu-prompt-label">批注：${escapeHtml(
-          text.slice(0, 30),
-        )}${text.length > 30 ? "…" : ""}</div>
-        <textarea class="pizhu-prompt-input" rows="4" placeholder="写下你的想法…"></textarea>
-        <div class="pizhu-prompt-actions">
-          <button class="pizhu-prompt-btn pizhu-prompt-cancel" type="button">取消</button>
-          <button class="pizhu-prompt-btn pizhu-prompt-ok" type="button">确定</button>
-        </div>
-      </div>`
+
+    const card = document.createElement("div")
+    card.className = "pizhu-prompt-card"
+
+    const label = document.createElement("div")
+    label.className = "pizhu-prompt-label"
+    label.textContent = `批注：${text.slice(0, 30)}${text.length > 30 ? "…" : ""}`
+
+    const input = document.createElement("textarea")
+    input.className = "pizhu-prompt-input"
+    input.rows = 4
+    input.placeholder = "写下你的想法…"
+
+    const actions = document.createElement("div")
+    actions.className = "pizhu-prompt-actions"
+
+    const cancelBtn = document.createElement("button")
+    cancelBtn.type = "button"
+    cancelBtn.className = "pizhu-prompt-btn pizhu-prompt-cancel"
+    cancelBtn.textContent = "取消"
+
+    const okBtn = document.createElement("button")
+    okBtn.type = "button"
+    okBtn.className = "pizhu-prompt-btn pizhu-prompt-ok"
+    okBtn.textContent = "确定"
+
+    actions.append(cancelBtn, okBtn)
+    card.append(label, input, actions)
+    mask.appendChild(card)
     document.body.appendChild(mask)
 
-    const input = mask.querySelector(".pizhu-prompt-input") as HTMLTextAreaElement
     input.value = initial
 
     const done = (value: string | null) => {
@@ -88,12 +133,8 @@ function promptNote(initial: string, text: string): Promise<string | null> {
     }
     const ok = () => done(input.value.trim() || null)
 
-    mask
-      .querySelector(".pizhu-prompt-ok")!
-      .addEventListener("click", ok)
-    mask
-      .querySelector(".pizhu-prompt-cancel")!
-      .addEventListener("click", () => done(null))
+    okBtn.addEventListener("click", ok)
+    cancelBtn.addEventListener("click", () => done(null))
     mask.addEventListener("mousedown", (e) => {
       if (e.target === mask) done(null)
     })
@@ -102,19 +143,12 @@ function promptNote(initial: string, text: string): Promise<string | null> {
         e.preventDefault()
         ok()
       } else if (e.key === "Escape") {
+        e.preventDefault()
         done(null)
       }
     })
     input.focus()
   })
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
 }
 
 /**

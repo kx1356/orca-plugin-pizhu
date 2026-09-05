@@ -147,6 +147,15 @@ export function AnnotationCard() {
   const [draft, setDraft] = useState("")
   const taRef = useRef(null) as any
 
+  // 批注已不存在（可能被删除）时自动关闭。
+  // 必须在 effect 中改全局状态，渲染期间 setState 是 React 反模式。
+  useEffect(() => {
+    if (!card.visible || card.blockId == null) return
+    const blk = blocks[card.blockId] as Block | undefined
+    const exists = (blk?.content ?? []).some((f) => isAnn(f) && f.id === card.annId)
+    if (!exists) closeAnnCard()
+  }, [card.visible, card.blockId, card.annId, blocks])
+
   // 编辑框根据文字内容自动伸缩高度（打开与输入时生效）
   const autoResize = () => {
     const ta = taRef.current
@@ -188,14 +197,14 @@ export function AnnotationCard() {
   const block = blocks[card.blockId] as Block | undefined
   const ann = (block?.content ?? []).find((f) => isAnn(f) && f.id === card.annId)
 
-  if (!ann) {
-    // 批注已不存在（可能被删除），自动关闭
-    closeAnnCard()
-    return null
-  }
+  // 批注已被删除：渲染空（关闭由上方 useEffect 处理）
+  if (!ann) return null
 
   const save = async () => {
-    if (draft.trim() === "") return
+    if (draft.trim() === "") {
+      orca.notify("warn", "批注内容不能为空")
+      return
+    }
     await orca.commands.invokeCommand(
       `${pluginPrefix}.ann.edit`,
       card.blockId,

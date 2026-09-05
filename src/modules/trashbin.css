@@ -1,26 +1,36 @@
 /* ============================================================
-   Orca Trash Bin — 回收站浮层与菜单样式
-   提炼自 orca-neo 主题 v2.0.0
+   Orca Trash Bin — 回收站浮层与菜单样式（Fluent 2 风格）
    颜色变量映射到 Orca 内置变量，跟随主题明暗
    ============================================================ */
 
-/* 顶栏菜单项的数量徽标 */
+@keyframes orca-trash-in {
+  from { opacity: 0; transform: scale(1.02); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 顶栏菜单项的数量徽标：Fluent 圆形徽标 */
 .orca-trash-menu-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  height: 15px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
   box-sizing: border-box;
   margin-left: 6px;
-  border-radius: 8px;
-  background: var(--orca-color-primary-5, #6a85e3);
+  border-radius: 999px;
+  background: var(--orca-color-accent, #0F6CBD);
   color: #fff;
   font-size: 10px;
+  font-weight: 600;
   line-height: 1;
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
+}
+
+/* 顶栏按钮字体 */
+.orca-trash-headbar-btn {
+  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", var(--orca-fontfamily-ui, system-ui), sans-serif;
 }
 
 /* 浮层背景 */
@@ -31,10 +41,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #00000059;
+  background: rgba(0, 0, 0, 0.30);
 }
 
-/* 浮层主体 */
+/* 浮层主体：Fluent 对话框 */
 .orca-trash-pop {
   z-index: 2147483000;
   width: 560px;
@@ -42,115 +52,165 @@
   max-height: 76vh;
   display: flex;
   flex-direction: column;
-  padding: 16px;
-  border-radius: 14px;
+  padding: 20px 24px 24px;
+  border-radius: 10px;
   background: var(--orca-color-bg-1);
   color: var(--orca-color-text-1);
-  border: 1px solid var(--orca-color-separator);
-  box-shadow: var(--orca-shadow-menu, 0 12px 40px rgba(0, 0, 0, .35));
-  font-family: var(--orca-fontfamily-ui, system-ui, -apple-system, "Segoe UI", sans-serif);
+  border: 1px solid var(--orca-color-border, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--orca-shadow-modal, 0 32px 64px rgba(0, 0, 0, 0.24)), 0 0 4px rgba(0, 0, 0, 0.2);
+  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", var(--orca-fontfamily-ui, system-ui), sans-serif;
   font-size: 14px;
   line-height: 1.5;
+  animation: orca-trash-in 140ms cubic-bezier(0.33, 0, 0.67, 1);
 }
 
 .orca-trash-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 4px 12px;
-  font-size: 16px;
+  padding: 2px 0 14px;
+  font-size: 18px;
   font-weight: 600;
 }
 .orca-trash-head-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .orca-trash-sort {
   padding: 4px 10px;
-  border: 1px solid var(--orca-color-separator);
-  border-radius: 6px;
-  background: var(--orca-color-bg-2);
+  border: 1px solid var(--orca-color-border, rgba(0, 0, 0, 0.08));
+  border-radius: 4px;
+  background: transparent;
   color: var(--orca-color-text-2);
-  font-family: var(--orca-fontfamily-ui, inherit);
+  font-family: inherit;
   font-size: 12px;
   font-weight: 400;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color 120ms cubic-bezier(0.33, 0, 0.67, 1), border-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
 }
-.orca-trash-sort:hover { background: var(--orca-color-bg-3); }
+.orca-trash-sort:hover {
+  background: color-mix(in srgb, var(--orca-color-text-1, #242424) 5%, transparent);
+  border-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 18%, transparent);
+}
+.orca-trash-sort:focus-visible {
+  outline: 2px solid var(--orca-color-accent, #0F6CBD);
+  outline-offset: 1px;
+}
 
 .orca-trash-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+  border-radius: 4px;
   cursor: pointer;
-  opacity: .6;
-  font-size: 12px;
+  opacity: 0.6;
+  font-size: 13px;
+  transition: opacity 120ms cubic-bezier(0.33, 0, 0.67, 1), background-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
 }
-.orca-trash-close:hover { opacity: 1; }
+.orca-trash-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--orca-color-text-1, #242424) 8%, transparent);
+}
 
 .orca-trash-body {
   flex: 1;
   overflow-y: auto;
   min-height: 40px;
+  scrollbar-width: thin;
+}
+.orca-trash-body::-webkit-scrollbar { width: 8px; }
+.orca-trash-body::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 15%, transparent);
+  border-radius: 4px;
 }
 .orca-trash-empty {
-  padding: 18px 8px;
+  padding: 28px 8px;
   text-align: center;
-  opacity: .5;
+  opacity: 0.5;
 }
 
+/* Fluent 列表：无分割线，悬停高亮 */
 .orca-trash-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 8px;
-  border-radius: 8px;
-  border-top: 1px solid var(--orca-color-separator);
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border-radius: 7px;
+  transition: background-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
 }
-.orca-trash-row:first-child { border-top: none; }
+.orca-trash-row:hover {
+  background: color-mix(in srgb, var(--orca-color-text-1, #242424) 4%, transparent);
+}
 
 .orca-trash-meta {
   flex: 1;
   min-width: 0;
 }
 .orca-trash-title {
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .orca-trash-sub {
   font-size: 12px;
-  opacity: .55;
+  opacity: 0.55;
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
 
 .orca-trash-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex: none;
 }
 
 .orca-trash-act {
-  padding: 5px 12px;
-  border: 1px solid var(--orca-color-separator);
-  border-radius: 6px;
-  background: var(--orca-color-bg-2);
+  padding: 5px 14px;
+  border: 1px solid var(--orca-color-border, rgba(0, 0, 0, 0.08));
+  border-radius: 4px;
+  background: transparent;
   color: var(--orca-color-text-2);
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
+  transition: background-color 120ms cubic-bezier(0.33, 0, 0.67, 1), border-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
 }
-.orca-trash-act:hover { background: var(--orca-color-bg-3); }
-.orca-trash-act:disabled { opacity: .45; cursor: default; }
+.orca-trash-act:hover {
+  background: color-mix(in srgb, var(--orca-color-text-1, #242424) 5%, transparent);
+  border-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 18%, transparent);
+}
+.orca-trash-act:focus-visible {
+  outline: 2px solid var(--orca-color-accent, #0F6CBD);
+  outline-offset: 1px;
+}
+.orca-trash-act:disabled { opacity: 0.45; cursor: default; }
 .orca-trash-act.danger {
-  color: #ef4444;
-  border-color: #ef444466;
+  color: #C42B1C;
+  border-color: color-mix(in srgb, #C42B1C 35%, transparent);
+}
+.orca-trash-act.danger:hover {
+  background: color-mix(in srgb, #C42B1C 8%, transparent);
+  border-color: color-mix(in srgb, #C42B1C 55%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  .orca-trash-act.danger { color: #F1707B; border-color: color-mix(in srgb, #F1707B 35%, transparent); }
+  .orca-trash-act.danger:hover {
+    background: color-mix(in srgb, #F1707B 10%, transparent);
+    border-color: color-mix(in srgb, #F1707B 55%, transparent);
+  }
 }
 
 .orca-trash-foot {
-  padding-top: 8px;
-  margin-top: 4px;
-  border-top: 1px solid var(--orca-color-separator);
+  padding-top: 14px;
+  margin-top: 8px;
+  border-top: 1px solid var(--orca-color-border, rgba(0, 0, 0, 0.08));
   text-align: right;
 }

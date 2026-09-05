@@ -791,7 +791,6 @@ export async function enable(name) {
   pluginName = name;
   try {
     document.body.classList.add("orca-tabbar-on");
-    document.body.classList.add("orca-tabbar-on");
     applyAccentColor();
     applyVertical();
     enableTabbar();
