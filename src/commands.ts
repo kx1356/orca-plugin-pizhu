@@ -12,6 +12,21 @@ import {
   type AnnFragment,
 } from "./ann"
 import { openAnnCard } from "./store"
+import { patchDoc } from "./index"
+import { rootIdOf } from "./ann"
+import { t } from "./libs/l10n"
+
+/** 批注增删改后，对全库索引做增量修正（定位文档根块，重扫该文档） */
+function patchIndexAfterChange(blockId: DbId) {
+  try {
+    const blocks = (orca.state as any).blocks ?? {}
+    if (blocks[blockId] == null) return
+    const rootId = rootIdOf(blockId, blocks)
+    patchDoc(rootId).catch(() => {})
+  } catch {
+    /* 索引修正失败不影响主流程 */
+  }
+}
 
 /** 保存 blocks content 的辅助函数 */
 async function setBlockContent(
@@ -99,12 +114,13 @@ function promptNote(initial: string, text: string): Promise<string | null> {
 
     const label = document.createElement("div")
     label.className = "pizhu-prompt-label"
-    label.textContent = `批注：${text.slice(0, 30)}${text.length > 30 ? "…" : ""}`
+    const display = `${text.slice(0, 30)}${text.length > 30 ? "…" : ""}`
+    label.textContent = t("Annotation: ${text}", { text: display })
 
     const input = document.createElement("textarea")
     input.className = "pizhu-prompt-input"
     input.rows = 4
-    input.placeholder = "写下你的想法…"
+    input.placeholder = t("Write your thoughts…")
 
     const actions = document.createElement("div")
     actions.className = "pizhu-prompt-actions"
@@ -112,12 +128,12 @@ function promptNote(initial: string, text: string): Promise<string | null> {
     const cancelBtn = document.createElement("button")
     cancelBtn.type = "button"
     cancelBtn.className = "pizhu-prompt-btn pizhu-prompt-cancel"
-    cancelBtn.textContent = "取消"
+    cancelBtn.textContent = t("Cancel")
 
     const okBtn = document.createElement("button")
     okBtn.type = "button"
     okBtn.className = "pizhu-prompt-btn pizhu-prompt-ok"
-    okBtn.textContent = "确定"
+    okBtn.textContent = t("OK")
 
     actions.append(cancelBtn, okBtn)
     card.append(label, input, actions)
@@ -162,12 +178,12 @@ export function registerCommands(pluginName: string) {
       addCmd,
       async ([panelId, rootBlockId, cursor]): Promise<any> => {
         if (cursor == null) {
-          orca.notify("warn", "请先选中要批注的文字")
+          orca.notify("warn", t("Please select text first"))
           return null
         }
         const { anchor, focus } = cursor
         if (anchor.blockId !== focus.blockId) {
-          orca.notify("warn", "暂不支持跨块批注，请在一个块内选中文字")
+          orca.notify("warn", t("Cross-block annotation is not supported yet"))
           return null
         }
         const blockId = anchor.blockId as DbId
@@ -177,9 +193,9 @@ export function registerCommands(pluginName: string) {
         const content = block.content ?? []
         const [start, end] = cursor.isForward ? [anchor, focus] : [focus, anchor]
 
-        const { fragments, text } = extractRange(content, start, end)
+        const { text } = extractRange(content, start, end)
         if (!text) {
-          orca.notify("warn", "没有选中文字")
+          orca.notify("warn", t("No text selected"))
           return null
         }
 
@@ -190,27 +206,40 @@ export function registerCommands(pluginName: string) {
         const note = await promptNote("", text)
         if (note == null) return null // 用户取消
 
+        // 弹窗等待期间块内容可能被并发修改（同步/协同编辑）。
+        // 写回前基于最新 content 重新提取并核对选区文本：
+        // 不一致则放弃写入，避免用旧快照覆盖新内容。
+        const freshBlock = orca.state.blocks[blockId] as Block | undefined
+        if (freshBlock == null) return null
+        const freshContent = freshBlock.content ?? []
+        const current = extractRange(freshContent, start, end)
+        if (current.text !== text) {
+          orca.notify("warn", t("Block changed during input, annotation cancelled"))
+          return null
+        }
+
         const ann: AnnFragment = {
           t: ANN_TYPE,
-          v: text,
+          v: current.text,
           id: genAnnId(),
           note,
-          texts: fragments,
+          texts: current.fragments,
           created: Date.now(),
           ...(domStyle ? { domStyle } : {}),
         }
-        const newContent = replaceRange(content, start, end, ann)
+        const newContent = replaceRange(freshContent, start, end, ann)
         await setBlockContent(cursor, blockId, newContent)
+        patchIndexAfterChange(blockId)
 
-        // 返回撤销数据：恢复旧 content
-        return { ret: null, undoArgs: { blockId, oldContent: content } }
+        // 返回撤销数据：恢复写入前的 content
+        return { ret: null, undoArgs: { blockId, oldContent: freshContent } }
       },
       async (panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
         if (undoArgs) {
           await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
         }
       },
-      { label: "添加批注" },
+      { label: t("Add annotation") },
     )
   }
 
@@ -226,8 +255,9 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = updateAnn(content, annId, { note, modified: Date.now() })
         await setBlockContent(null, blockId, newContent)
+        patchIndexAfterChange(blockId)
       },
-      "编辑批注",
+      t("Edit annotation"),
     )
   }
 
@@ -243,8 +273,9 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = removeAnn(content, annId)
         await setBlockContent(null, blockId, newContent)
+        patchIndexAfterChange(blockId)
       },
-      "删除批注",
+      t("Remove annotation"),
     )
   }
 
@@ -258,7 +289,7 @@ export function registerCommands(pluginName: string) {
         if (bid == null) return
         openAnnCard(bid, "", 0, 0) // 仅用于演示入口，实际以面板为主
       },
-      "查看当前块批注",
+      t("View block annotations"),
     )
   }
 }

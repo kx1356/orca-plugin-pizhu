@@ -139,33 +139,26 @@ export function removeAnn(
   return result
 }
 
-/** 批注在块内的序号（从 1 开始，按 content 中出现的顺序） */
-export function annOrdinal(content: ContentFragment[], upToIndex: number): number {
-  let n = 0
-  for (let i = 0; i <= upToIndex && i < content.length; i++) {
-    if (isAnn(content[i])) n++
-  }
-  return n
-}
-
 /** 递归收集一棵块树内所有批注，附带所属块信息 */
 export interface AnnEntry {
   ann: AnnFragment
   block: Block
-  ordinal: number // 块内序号
+  ordinal: number // 整篇文档内序号（DFS 先序，从 1 递增）
 }
 
 export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
   const entries: AnnEntry[] = []
   const seen = new Set<DbId>()
   const MAX_DEPTH = 1000 // 防御异常数据（成环/超深）导致死循环
+  // 全局累计：DFS 先序 = 文档阅读顺序，让序号在整篇文档内递增（1、2、3…），
+  // 与正文角标（annGlobalOrdinal）语义一致
+  let ord = 0
   const visit = (id: DbId | undefined, depth: number) => {
     if (id == null || depth > MAX_DEPTH || seen.has(id)) return
     seen.add(id)
     const block = orca.state.blocks[id]
     if (block == null) return
     const content = block.content ?? []
-    let ord = 0
     content.forEach((f, i) => {
       if (isAnn(f)) {
         ord++
@@ -176,6 +169,68 @@ export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
   }
   visit(rootBlockId, 0)
   return entries
+}
+
+/** 全库批注总数（轻量计数：只遍历块统计 pizhu.ann 数量，不回溯根、不构建分组）。
+ *  用作顶栏徽标常驻数字，与 collectAllGroups 的结果求和一致（同一数据源）。 */
+export function countAllAnnotations(blocks: any): number {
+  let n = 0
+  for (const id of Object.keys(blocks)) {
+    const content = blocks[id]?.content
+    if (!Array.isArray(content)) continue
+    for (const f of content) {
+      if (f != null && f.t === ANN_TYPE) n++
+    }
+  }
+  return n
+}
+
+/** 从任意块 id 沿 parent 链回溯到根块（页面）id */
+export function rootIdOf(blockId: DbId | string, blocks: any): DbId {
+  const visited = new Set<DbId>()
+  let cur = blocks[blockId]
+  while (cur != null && cur.parent != null && cur.parent !== "" && !visited.has(cur.id)) {
+    visited.add(cur.id)
+    cur = blocks[cur.parent]
+  }
+  return cur?.id as DbId
+}
+
+/**
+ * 计算某批注在整篇文档中的全局序号（DFS 先序，与 collectAnnotations 一致）。
+ * 从 rootId 遍历，遇目标块 blockId 数到 upToIndex（含）为止后停止，不再下钻子块。
+ * 供正文角标渲染在无共享计数状态时按需重算。
+ */
+export function annGlobalOrdinal(
+  rootId: DbId,
+  blockId: DbId,
+  upToIndex: number,
+): number {
+  const seen = new Set<DbId>()
+  const MAX_DEPTH = 1000
+  let count = 0
+  let hit = false
+  const visit = (id: DbId | undefined, depth: number) => {
+    if (hit || id == null || depth > MAX_DEPTH || seen.has(id)) return
+    seen.add(id)
+    const block = orca.state.blocks[id]
+    if (block == null) return
+    const content = block.content ?? []
+    const limit =
+      id === blockId
+        ? Math.max(0, Math.min(upToIndex, content.length - 1))
+        : content.length - 1
+    for (let i = 0; i <= limit; i++) {
+      if (isAnn(content[i])) count++
+    }
+    if (id === blockId) {
+      hit = true
+      return
+    }
+    ;(block.children ?? []).forEach((cid) => visit(cid, depth + 1))
+  }
+  visit(rootId, 0)
+  return count
 }
 
 /**

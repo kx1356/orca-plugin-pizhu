@@ -1,7 +1,8 @@
 // 行内渲染器：波浪线 + 角标数字，悬停浮窗预览，点击弹出批注卡
 import type { Block, ContentFragment, DbId } from "./orca.d.ts"
-import { annOrdinal, isAnn } from "./ann"
+import { annGlobalOrdinal, isAnn, rootIdOf } from "./ann"
 import { annCard, closeAnnCard, openAnnCard } from "./store"
+import { t } from "./libs/l10n"
 
 const { useState, useRef, useEffect } = window.React as any
 const { useSnapshot } = window.Valtio as any
@@ -31,8 +32,11 @@ export default function AnnotationInline({
   const block = blocks[blockId] as Block | undefined
   const ann = isAnn(data) ? data : null
 
-  // 块内批注序号：统计当前 fragment 之前（含自身）的批注数量
-  const ordinal = ann ? annOrdinal(block?.content ?? [], index) : 0
+  // 整篇文档内批注序号：回溯到根块后按 DFS 先序统计（与批注列表序号一致）
+  const rootId = rootIdOf(blockId, blocks)
+  const ordinal = ann
+    ? annGlobalOrdinal(rootId, blockId as DbId, index)
+    : 0
 
   // 悬停预览浮窗状态
   const [previewPos, setPreviewPos] = useState(
@@ -202,7 +206,7 @@ export function AnnotationCard() {
 
   const save = async () => {
     if (draft.trim() === "") {
-      orca.notify("warn", "批注内容不能为空")
+      orca.notify("warn", t("Annotation content cannot be empty"))
       return
     }
     await orca.commands.invokeCommand(
@@ -241,14 +245,14 @@ export function AnnotationCard() {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="pizhu-card-scroll">
-        <div className="pizhu-card-original" title="原文">
+        <div className="pizhu-card-original" title={t("Original text")}>
           {ann.v}
         </div>
         <textarea
           ref={taRef}
           className="pizhu-card-input"
           rows={1}
-          placeholder="写下批注…"
+          placeholder={t("Write a note…")}
           value={draft || ann.note}
           onChange={(e) => setDraft(e.target.value)}
           onInput={autoResize}
@@ -257,14 +261,14 @@ export function AnnotationCard() {
       </div>
       <div className="pizhu-card-actions">
         <button className="pizhu-card-btn pizhu-card-btn-danger" onClick={remove}>
-          删除
+          {t("Delete")}
         </button>
         <span className="pizhu-card-spacer" />
         <button className="pizhu-card-btn" onClick={closeAnnCard}>
-          取消
+          {t("Cancel")}
         </button>
         <button className="pizhu-card-btn pizhu-card-btn-primary" onClick={save}>
-          保存
+          {t("Save")}
         </button>
       </div>
     </div>

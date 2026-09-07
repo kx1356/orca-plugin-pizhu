@@ -5,6 +5,8 @@
 // 点击切换 / 中键关闭 / 拖拽排序 / 拖到面板边缘分栏 / 垂直模式
 // ============================================================
 
+import { t } from "../libs/l10n";
+
 let pluginName = "";
 
 // ---- DOM 元素 ----
@@ -98,12 +100,23 @@ function findPanel(id) {
   return panels.find(p => p.id === id) ?? null;
 }
 
+// viewArgs 单个值的稳定序列化：嵌套对象/日期若直接 String() 会退化成
+// "[object Object]" 导致不同 viewArgs 生成相同缓存 key（页签互相顶掉）
+function stableArgValue(v) {
+  if (v == null) return String(v);
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "object") {
+    try { return JSON.stringify(v, Object.keys(v).sort()); } catch { return String(v); }
+  }
+  return String(v);
+}
+
 // view + viewArgs 序列化为缓存 key
 function viewKey(view, viewArgs) {
   let s = "";
   try {
     const args = viewArgs ?? {};
-    s = Object.keys(args).sort().map(k => `${k}=${String(args[k])}`).join("&");
+    s = Object.keys(args).sort().map(k => `${k}=${stableArgValue(args[k])}`).join("&");
   } catch { /* ignore */ }
   return `${view}|${s}`;
 }
@@ -174,28 +187,32 @@ function blockTitle(block, depth = 0) {
   return repr.cap ? String(repr.cap) : `(${repr.type})`;
 }
 
-const VIEW_TITLES = {
-  journal: "日记",
-  search: "搜索",
-  tags: "标签",
-  graph: "关系图",
-  whiteboard: "白板"
-};
+// 各视图的默认标题（函数形式：模块顶层求值早于 setupL10N，必须运行时取词）
+function viewTitleOf(view) {
+  switch (view) {
+    case "journal": return t("Journal");
+    case "search": return t("Search");
+    case "tags": return t("Tags");
+    case "graph": return t("Graph");
+    case "whiteboard": return t("Whiteboard");
+    default: return "";
+  }
+}
 
 // 页签标题
 function tabTitle(entry) {
-  let t = "";
+  let title = "";
   try {
     if (entry.view === "journal") {
-      t = formatDate(entry.viewArgs?.date);
+      title = formatDate(entry.viewArgs?.date);
     } else if (entry.view === "block" || entry.view === "bgraph") {
-      t = blockTitle(blockOf(entry.viewArgs?.blockId));
-      if (t && entry.view === "bgraph") t = `关系图：${t}`;
+      title = blockTitle(blockOf(entry.viewArgs?.blockId));
+      if (title && entry.view === "bgraph") title = t("Graph: ${title}", { title });
     }
-    if (!t) t = String(entry.viewArgs?.title ?? "");
+    if (!title) title = String(entry.viewArgs?.title ?? "");
   } catch { /* ignore */ }
-  if (t) { entry.title = t; return t; }
-  return entry.title || VIEW_TITLES[entry.view] || entry.view || "未命名";
+  if (title) { entry.title = title; return title; }
+  return entry.title || viewTitleOf(entry.view) || entry.view || t("Untitled");
 }
 
 const TYPE_ICONS = {
@@ -520,7 +537,7 @@ function renderTab(data) {
 
     const pin = document.createElement("span");
     pin.className = "orca-tab-pin ti ti-pin";
-    pin.title = "固定此页签";
+    pin.title = t("Pin tab");
     pin.addEventListener("click", e => {
       e.stopPropagation();
       pinTab(entry);
@@ -530,7 +547,7 @@ function renderTab(data) {
     const close = document.createElement("span");
     close.className = "orca-tab-close";
     close.textContent = "×";
-    close.title = "移出缓存";
+    close.title = t("Remove from cache");
     close.addEventListener("click", e => {
       e.stopPropagation();
       closeTab(panelId, entry.key);
@@ -592,7 +609,7 @@ function renderTab(data) {
 // 固定页签渲染：置顶组内，带取消固定按钮，中键也可取消
 function renderPinnedTab(tab) {
   if (!tabbarEl) return;
-  const title = tab.title || tab.view || "未命名";
+  const title = tab.title || tab.view || t("Untitled");
   const activePanel = orca.state?.activePanel;
   const panel = activePanel ? findPanel(activePanel) : null;
   const isActive = panel != null && viewKey(panel.view ?? "", panel.viewArgs) === tab.key;
@@ -611,7 +628,7 @@ function renderPinnedTab(tab) {
 
   const pin = document.createElement("span");
   pin.className = "orca-tab-pin ti ti-pin-filled";
-  pin.title = "取消固定";
+  pin.title = t("Unpin");
   pin.addEventListener("click", e => {
     e.stopPropagation();
     unpinTab(tab.key);
@@ -801,7 +818,7 @@ export async function enable(name) {
     console.log(`${name} loaded.`);
   } catch (e) {
     console.error(`[TABBAR] ${name} 加载失败：`, e);
-    try { orca.notify?.("error", `页签插件加载失败：${e?.message ?? e}`); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Tab bar plugin failed to load: ${msg}", { msg: String(e?.message ?? e) })); } catch { /* ignore */ }
   }
 }
 

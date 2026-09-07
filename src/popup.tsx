@@ -1,6 +1,8 @@
 // 顶栏批注下拉卡：Popup 组件锚定顶栏按钮，汇总当前文档所有批注（替代原侧栏）
 import type { DbId } from "./orca.d.ts"
 import { collectAnnotations, findViewPanelByView, type AnnEntry } from "./ann"
+import { annIndex, rebuildIndex } from "./index"
+import { t } from "./libs/l10n"
 
 const { useState, useRef, useEffect, useMemo } = window.React as any
 const { useSnapshot } = window.Valtio as any
@@ -107,70 +109,9 @@ async function findDocumentRoot(panels: any): Promise<DbId | undefined> {
   return fallbackRootFromBlocks((orca.state as any).blocks)
 }
 
-/** 沿 parent 链回溯到根块（页面） */
-function rootOf(id: DbId, blocks: any): DbId {
-  const visited = new Set<DbId>()
-  let cur = blocks[id]
-  while (cur != null && cur.parent != null && cur.parent !== "" && !visited.has(cur.id)) {
-    visited.add(cur.id)
-    cur = blocks[cur.parent]
-  }
-  return cur?.id as DbId
-}
-
-/** 页面（根块）标题：journal 显示日期，其余取别名 / text / _repr.cap */
-function pageTitle(block: any): string {
-  if (block == null) return "未命名"
-  const repr = block.properties?.find((p: any) => p.name === "_repr")?.value
-  if (repr?.type === "journal") {
-    try {
-      const d = repr.date instanceof Date ? repr.date : new Date(repr.date)
-      if (!isNaN(d.getTime())) {
-        return new Intl.DateTimeFormat((orca.state as any).locale || undefined, {
-          dateStyle: "medium",
-        }).format(d)
-      }
-    } catch { /* ignore */ }
-  }
-  if (block.aliases?.length) {
-    const a = String(block.aliases[0])
-    return a.startsWith("/") ? a.split("/").at(-1) ?? a : a
-  }
-  if (block.text != null) {
-    const t = String(block.text).trim().replace(/(\s*#[^\s#]+)+$/u, "").trim()
-    if (t) return t
-  }
-  return repr?.cap ? String(repr.cap) : "未命名"
-}
-
-/** 全部文档的批注分组（按页面） */
-interface AnnPageGroup {
-  rootId: DbId
-  title: string
-  entries: AnnEntry[]
-}
-
-/** 扫描 blocks 全表：含批注的块 → 回溯根块去重 → 每个根块收集批注；当前文档排最前，其余按标题排序 */
-function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPageGroup[] {
-  const rootSet = new Set<DbId>()
-  for (const id of Object.keys(blocks)) {
-    const content = blocks[id]?.content
-    if (Array.isArray(content) && content.some((f: any) => f?.t === "pizhu.ann")) {
-      rootSet.add(rootOf(id as unknown as DbId, blocks))
-    }
-  }
-  const groups: AnnPageGroup[] = []
-  for (const rid of rootSet) {
-    const entries = collectAnnotations(rid)
-    if (entries.length === 0) continue
-    groups.push({ rootId: rid, title: pageTitle(blocks[rid]), entries })
-  }
-  groups.sort((a, b) => {
-    if (a.rootId === currentRootId) return -1
-    if (b.rootId === currentRootId) return 1
-    return a.title.localeCompare(b.title, "zh")
-  })
-  return groups
+/** 当前文档批注（DFS 序号），供"仅当前文档"与分组切换前的实时显示 */
+function currentDocEntries(rootBlockId: DbId | undefined, blocks: any): AnnEntry[] {
+  return rootBlockId == null ? [] : collectAnnotations(rootBlockId)
 }
 
 /** 顶栏按钮 + Popup 下拉卡：点按钮展开汇总，点外部/Esc 关闭，不占分栏空间 */
@@ -217,18 +158,14 @@ export default function AnnPopupButton() {
   }, [panels, syncRootId])
 
   const entries: AnnEntry[] = useMemo(
-    () => (rootBlockId == null ? [] : collectAnnotations(rootBlockId)),
+    () => currentDocEntries(rootBlockId, blocks),
     [rootBlockId, blocks],
   )
-  // 全部模式：按页面分组收集所有文档的批注
-  const groups: AnnPageGroup[] = useMemo(
-    () => (scope === "all" ? collectAllGroups(blocks, rootBlockId) : []),
-    [scope, blocks, rootBlockId],
-  )
-  const totalCount =
-    scope === "all"
-      ? groups.reduce((n, g) => n + g.entries.length, 0)
-      : entries.length
+  // 全库索引可订阅状态（"全部文档"数据源；重建完成后响应式更新）
+  const idxSnap = useSnapshot(annIndex) as any
+  const [rebuildBusy, setRebuildBusy] = useState(false)
+  // 生效范围的批注总数：all = 全库索引总数，doc = 当前文档
+  const totalCount = scope === "all" ? idxSnap.totalCount : entries.length
 
   const { Button, Popup } = orca.components as any
 
@@ -240,6 +177,26 @@ export default function AnnPopupButton() {
   const remove = async (e: any, blockId: DbId, annId: string) => {
     e.stopPropagation()
     await orca.commands.invokeCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
+  }
+
+  // 重建索引：全库重扫，完成后响应式刷新列表与徽标
+  const onRebuild = async () => {
+    if (rebuildBusy || idxSnap.state === "building") return
+    setRebuildBusy(true)
+    const res = await rebuildIndex()
+    setRebuildBusy(false)
+    try {
+      if (res.ok) {
+        orca.notify("success", t("Index rebuilt: ${n} annotations in ${d} documents", {
+          n: String(res.totalCount),
+          d: String(res.docCount),
+        }), { title: t("Annotation index") })
+      } else {
+        orca.notify("error", t("Index rebuild failed: ${error}", { error: res.error ?? "unknown" }), { title: t("Annotation index") })
+      }
+    } catch {
+      /* 忽略通知异常 */
+    }
   }
 
   const renderItem = (entry: AnnEntry) => (
@@ -254,7 +211,7 @@ export default function AnnPopupButton() {
         <span className="pizhu-pop-item-spacer" />
         <button
           className="pizhu-pop-del"
-          title="删除批注"
+          title={t("Remove annotation")}
           onClick={(e: any) => remove(e, entry.block.id, entry.ann.id)}
         >
           ✕
@@ -266,18 +223,54 @@ export default function AnnPopupButton() {
       <div className="pizhu-pop-blockref">{blockPreview(entry)}</div>
     </div>
   )
+
+  // 全库索引条目渲染（AnnIndexItem：内容取自索引快照，无需对应块在内存）
+  const renderIndexItem = (item: any, ordinal: number) => (
+    <div
+      key={item.id}
+      className="pizhu-pop-item"
+      onClick={() => jump(item.blockId)}
+    >
+      <div className="pizhu-pop-item-top">
+        <span className="pizhu-pop-ordinal">{ordinal}</span>
+        <span className="pizhu-pop-original">{item.v}</span>
+        <span className="pizhu-pop-item-spacer" />
+        <button
+          className="pizhu-pop-del"
+          title={t("Remove annotation")}
+          onClick={(e: any) => remove(e, item.blockId, item.id)}
+        >
+          ✕
+        </button>
+      </div>
+      {item.note && <div className="pizhu-pop-note">{item.note}</div>}
+      {item.preview && <div className="pizhu-pop-blockref">{item.preview}</div>}
+    </div>
+  )
+
+  const renderAllList = () => (
+    <div className="pizhu-pop-list">
+      {idxSnap.docs.map((g: any) => (
+        <div key={g.rootId} className="pizhu-pop-page">
+          <div className="pizhu-pop-page-title">{g.title}</div>
+          {g.anns.map((item: any, i: number) => renderIndexItem(item, i + 1))}
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <>
       <span ref={btnRef} className="pizhu-pop-anchor">
         <Button
           variant="plain"
           onClick={() => setOpen(!open)}
-          title="批注"
+          title={t("Annotations")}
         >
           <span className="pizhu-headbar-btn">
-            <i className="ti ti-notes" /> 批注
-            {entries.length > 0 && (
-              <span className="pizhu-pop-count">{entries.length}</span>
+            <i className="ti ti-notes" /> {t("Annotations")}
+            {totalCount > 0 && (
+              <span className="pizhu-pop-count">{totalCount}</span>
             )}
           </span>
         </Button>
@@ -295,33 +288,50 @@ export default function AnnPopupButton() {
       >
         <div className="pizhu-pop-inner">
           <div className="pizhu-pop-header">
-            批注 <span className="pizhu-pop-count">{totalCount}</span>
+            {t("Annotations")} <span className="pizhu-pop-count">{totalCount}</span>
             <span className="pizhu-pop-item-spacer" />
+            {scope === "all" && (
+              <>
+                <button
+                  className="pizhu-pop-rebuild"
+                  onClick={onRebuild}
+                  disabled={rebuildBusy || idxSnap.state === "building"}
+                  title={t("Rebuild index: rescan all documents")}
+                >
+                  {rebuildBusy || idxSnap.state === "building"
+                    ? t("Indexing…")
+                    : t("Rebuild index")}
+                </button>
+              </>
+            )}
             <button
               className="pizhu-pop-scope"
               onClick={toggleScope}
-              title={scope === "doc" ? "切换：显示所有文档的批注" : "切换：只显示当前文档的批注"}
+              title={scope === "doc" ? t("Switch: show annotations from all documents") : t("Switch: show current document only")}
             >
-              {scope === "doc" ? "仅当前文档" : "全部文档"}
+              {scope === "doc" ? t("Current document only") : t("All documents")}
             </button>
           </div>
-          {totalCount === 0 ? (
+          {scope === "all" && idxSnap.state !== "ready" && idxSnap.docs.length === 0 ? (
+            <div className="pizhu-pop-empty">{t("Indexing, please try again shortly…")}</div>
+          ) : totalCount === 0 ? (
             <div className="pizhu-pop-empty">
-              {scope === "doc" ? "当前文档还没有批注。" : "所有文档都还没有批注。"}
+              {scope === "doc" ? t("No annotations in this document") : t("No annotations in any document")}
               <br />
-              选中文字后按 Ctrl+Alt+A 添加。
+              {t("Add by selecting text and pressing Ctrl+Alt+A")}
             </div>
           ) : (
-            <div className="pizhu-pop-list">
-              {scope === "all"
-                ? groups.map((g) => (
-                    <div key={g.rootId} className="pizhu-pop-page">
-                      <div className="pizhu-pop-page-title">{g.title}</div>
-                      {g.entries.map((entry) => renderItem(entry))}
-                    </div>
-                  ))
-                : entries.map((entry) => renderItem(entry))}
-            </div>
+            scope === "all" ? (
+              idxSnap.docs.length > 0 ? (
+                renderAllList()
+              ) : (
+                <div className="pizhu-pop-empty">{t("Indexing, please try again shortly…")}</div>
+              )
+            ) : (
+              <div className="pizhu-pop-list">
+                {entries.map((entry) => renderItem(entry))}
+              </div>
+            )
           )}
         </div>
       </Popup>

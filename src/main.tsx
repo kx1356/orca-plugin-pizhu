@@ -5,6 +5,7 @@ import AnnotationInline, { AnnotationCard, setPluginPrefix as setRendererPrefix 
 import { registerCommands, unregisterCommands } from "./commands"
 import { findViewPanelByView } from "./ann"
 import AnnPopupButton, { setPluginPrefix as setPopupPrefix } from "./popup"
+import { ensureIndex, setAnnIndexPluginName } from "./index"
 import { PIZHU_CSS } from "./styles"
 import { enable as enableTabbar, disable as disableTabbar } from "./modules/tabbar"
 import { enable as enableTrashbin, disable as disableTrashbin } from "./modules/trashbin"
@@ -19,6 +20,9 @@ let cardHost: HTMLDivElement | null = null
 let tabbarOn = false
 let trashbinOn = false
 let settingsUnsub: any = null
+
+/** README/空态文案承诺的批注快捷键 */
+const ANN_SHORTCUT = "ctrl+alt+a"
 
 /** 合并插件设置 schema：核心批注 + 页签栏/回收站可选项 */
 const SCHEMA = {
@@ -99,12 +103,22 @@ export async function load(_name: string) {
   // 同步插件名前缀到渲染器/面板（命令 ID 依赖）
   setRendererPrefix(pluginName)
   setPopupPrefix(pluginName)
+  setAnnIndexPluginName(pluginName)
 
   // 1. 行内渲染器：波浪线 + 角标
   orca.renderers.registerInline("pizhu.ann", false, AnnotationInline)
 
   // 2. 命令
   registerCommands(pluginName)
+
+  // 2a. 绑定 Ctrl+Alt+A 添加批注（已被其他命令占用时不强占，保持幂等）
+  try {
+    if (orca.state.shortcuts?.[ANN_SHORTCUT] == null) {
+      await orca.shortcuts.assign(ANN_SHORTCUT, `${pluginName}.ann.add`)
+    }
+  } catch {
+    /* ignore */
+  }
 
   // 2b. 清理旧版本遗留的 pizhu.panel 侧栏（v3.2.0 起改为顶栏下拉卡）
   try {
@@ -150,6 +164,12 @@ export async function load(_name: string) {
   cardRoot = createRoot(cardHost)
   cardRoot.render(<AnnotationCard />)
 
+  // 7. 全库批注索引：无缓存则后台重建，供"全部文档"统计与下拉卡使用
+  //    不阻塞插件加载（重建完成会通过 Valtio proxy 响应式更新 UI）
+  ensureIndex().catch(() => {
+    /* 索引失败不影响主流程 */
+  })
+
   console.log(`${pluginName} loaded.`)
 }
 
@@ -182,6 +202,15 @@ export async function unload() {
   }
   orca.themes.removeCSS(pluginName)
   unregisterCommands(pluginName)
+
+  // 解绑快捷键（仅当仍绑定在本插件命令上时，不动用户后续的自定义绑定）
+  try {
+    if (orca.state.shortcuts?.[ANN_SHORTCUT] === `${pluginName}.ann.add`) {
+      await orca.shortcuts.assign("", `${pluginName}.ann.add`)
+    }
+  } catch {
+    /* ignore */
+  }
 
   // 停用可选功能模块（页签栏 / 回收站）
   try {

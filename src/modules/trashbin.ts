@@ -5,6 +5,8 @@
 // 拦截删除操作，自动保存页面快照，可随时恢复或彻底删除
 // ============================================================
 
+import { t } from "../libs/l10n";
+
 let pluginName = "";
 
 // ---- 后端 hook（链式安全：卸载时只摘自己的 wrapper，不覆盖其他插件后装的 hook）----
@@ -60,7 +62,7 @@ function installHook() {
       } catch (e) {
         console.error("[TRASH] 拦截异常，已取消删除以保数据：", e);
         try {
-          orca.notify?.("error", `回收站：删除已被拦截（${e?.message ?? e}），页面未删除以保数据。可重试或检查存储。`, { title: "回收站" });
+          orca.notify?.("error", t("Deletion intercepted to protect data (${msg}); page not deleted.", { msg: String(e?.message ?? e) }), { title: t("Trash bin") });
         } catch { /* ignore */ }
         return [];
       }
@@ -108,6 +110,13 @@ async function snapshotTree(b, blockId, seen = new Set(), depth = 0) {
   let block = null;
   try { block = await b("get-block", blockId); } catch { block = null; }
   if (!block) return null;
+  // 富文本 content（格式、行内元素、批注）：优先取后端返回，
+  // 缺失时从前端状态兜底；快照存下它，恢复时才不会退化为纯文本
+  let content = Array.isArray(block.content) ? block.content : null;
+  if (content == null || content.length === 0) {
+    const st = orca.state?.blocks?.[blockId];
+    if (Array.isArray(st?.content) && st.content.length > 0) content = st.content;
+  }
   const kids = [];
   for (const childId of Array.isArray(block.children) ? block.children : []) {
     if (typeof childId === "number") {
@@ -117,6 +126,7 @@ async function snapshotTree(b, blockId, seen = new Set(), depth = 0) {
   }
   return {
     id: block.id,
+    content: content ?? [],
     text: typeof block.text === "string" ? block.text : "",
     aliases: Array.isArray(block.aliases) ? block.aliases : [],
     properties: Array.isArray(block.properties) ? block.properties : [],
@@ -146,7 +156,7 @@ async function snapshotPage(b, repo, pageId, block) {
   };
   await writeIndex(b, repo, [...list.filter(e => e.pageId !== pageId), entry]);
   try {
-    orca.notify?.("success", `已移入回收站：${entry.title}`, { title: "回收站" });
+    orca.notify?.("success", t("Moved to trash bin: ${title}", { title: entry.title }), { title: t("Trash bin") });
   } catch { /* ignore */ }
 }
 
@@ -203,7 +213,7 @@ async function restorePage(pageId) {
   const list = await readIndex(b, repo);
   await writeIndex(b, repo, list.filter(e => e.pageId !== pageId));
   try {
-    orca.notify?.("success", `已恢复：${record?.tree ? titleOf(record.tree) : pageId}`, { title: "回收站" });
+    orca.notify?.("success", t("Restored: ${title}", { title: record?.tree ? titleOf(record.tree) : String(pageId) }), { title: t("Trash bin") });
   } catch { /* ignore */ }
 }
 
@@ -253,7 +263,11 @@ function splitRepr(node) {
     : null;
   const repr = reprProp && reprProp.value ? reprProp.value : { type: "text" };
   const text = (typeof node?.text === "string" ? node.text : "").replace(/\n+$/, "");
-  return { repr, content: text ? [{ t: "t", v: text }] : [] };
+  // 快照带富文本 content（格式/行内元素/批注）时优先还原；否则退回纯文本
+  const content = Array.isArray(node?.content) && node.content.length > 0
+    ? node.content
+    : (text ? [{ t: "t", v: text }] : []);
+  return { repr, content };
 }
 
 // 彻底删除单个
@@ -318,16 +332,17 @@ function stopCleanupTimer() {
 // ============================================================
 
 function titleOf(node) {
-  if (!node) return "(无标题)";
-  const t = firstText(node);
-  return t ? t.slice(0, 80) : "(无标题)";
+  if (!node) return t("(no title)");
+  const text = firstText(node);
+  return text ? text.slice(0, 80) : t("(no title)");
 }
 
 function firstText(node) {
   if (!node) return "";
   if (Array.isArray(node.content)) {
+    // 富文本快照下首段可能是加粗/行内代码等 fragment，放宽为「任一带文本的 fragment」
     for (const c of node.content) {
-      if (c && typeof c.v === "string" && c.t === "t" && c.v.trim()) return c.v.trim();
+      if (c && typeof c.v === "string" && c.v.trim()) return c.v.trim();
     }
   }
   if (typeof node.text === "string" && node.text.trim()) return node.text.trim();
@@ -366,7 +381,11 @@ function formatTime(ts) {
 
 function remainingText(ms) {
   const days = ms / 864e5;
-  return days <= 0 ? "今天过期" : days < 1 ? "剩不到 1 天" : `剩 ${Math.ceil(days)} 天`;
+  return days <= 0
+    ? t("Expires today")
+    : days < 1
+      ? t("Less than 1 day left")
+      : t("${n} days left", { n: String(Math.ceil(days)) });
 }
 
 function TrashDialog({ onClose }) {
@@ -385,20 +404,20 @@ function TrashDialog({ onClose }) {
   async function restore(id) {
     setBusy(true);
     try { await restorePage(id); refresh(); }
-    catch (e) { orca.notify?.("error", `恢复失败：${e?.message ?? e}`, { title: "回收站" }); }
+    catch (e) { orca.notify?.("error", t("Restore failed: ${msg}", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); }
     finally { setBusy(false); }
   }
   async function purge(id) {
     setBusy(true);
     try { await purgePage(id); refresh(); }
-    catch (e) { orca.notify?.("error", `删除失败：${e?.message ?? e}`, { title: "回收站" }); }
+    catch (e) { orca.notify?.("error", t("Delete failed: ${msg}", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); }
     finally { setBusy(false); }
   }
   async function purgeAllItems() {
-    if (items.length !== 0 && window.confirm(`确定清空回收站？共 ${items.length} 项将被永久删除，不可恢复。`)) {
+    if (items.length !== 0 && window.confirm(t("Empty trash bin? ${n} items will be permanently deleted.", { n: String(items.length) }))) {
       setBusy(true);
       try { await purgeAll(); refresh(); }
-      catch (e) { orca.notify?.("error", `清空失败：${e?.message ?? e}`, { title: "回收站" }); }
+      catch (e) { orca.notify?.("error", t("Empty failed: ${msg}", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); }
       finally { setBusy(false); }
     }
   }
@@ -414,35 +433,35 @@ function TrashDialog({ onClose }) {
   return React.createElement("div", { className: "orca-trash-backdrop", onMouseDown: onClose },
     React.createElement("div", { className: "orca-trash-pop", onMouseDown: e => e.stopPropagation() },
       React.createElement("div", { className: "orca-trash-head" },
-        React.createElement("span", null, "回收站"),
+        React.createElement("span", null, t("Trash bin")),
         React.createElement("div", { className: "orca-trash-head-tools" },
           React.createElement("button", {
             className: "orca-trash-sort",
-            title: "切换排序方式",
+            title: t("Switch sort order"),
             onClick: () => setSort(s => s === "deletedDesc" ? "remainingAsc" : "deletedDesc")
-          }, sort === "deletedDesc" ? "删除时间倒序 ↓" : "剩余时长 ↑"),
+          }, sort === "deletedDesc" ? t("Deleted time ↓") : t("Remaining time ↑")),
           React.createElement("span", { className: "orca-trash-close", onClick: onClose }, "✕")
         )
       ),
       React.createElement("div", { className: "orca-trash-body" },
-        sorted.length === 0 && React.createElement("div", { className: "orca-trash-empty" }, "回收站为空"),
+        sorted.length === 0 && React.createElement("div", { className: "orca-trash-empty" }, t("Trash bin is empty")),
         sorted.map(item =>
           React.createElement("div", { className: "orca-trash-row", key: item.pageId },
             React.createElement("div", { className: "orca-trash-meta" },
-              React.createElement("div", { className: "orca-trash-title", title: item.title }, item.title || "(无标题)"),
+              React.createElement("div", { className: "orca-trash-title", title: item.title }, item.title || t("(no title)")),
               React.createElement("div", { className: "orca-trash-sub" },
                 formatTime(item.deletedAt), " · ", remainingText(item.remainingMs)
               )
             ),
             React.createElement("div", { className: "orca-trash-actions" },
-              React.createElement("button", { className: "orca-trash-act", disabled: busy, onClick: () => restore(item.pageId) }, "恢复"),
-              React.createElement("button", { className: "orca-trash-act danger", disabled: busy, onClick: () => purge(item.pageId) }, "彻底删除")
+              React.createElement("button", { className: "orca-trash-act", disabled: busy, onClick: () => restore(item.pageId) }, t("Restore")),
+              React.createElement("button", { className: "orca-trash-act danger", disabled: busy, onClick: () => purge(item.pageId) }, t("Delete permanently"))
             )
           )
         )
       ),
       React.createElement("div", { className: "orca-trash-foot" },
-        React.createElement("button", { className: "orca-trash-act danger", disabled: busy || sorted.length === 0, onClick: purgeAllItems }, "清空回收站")
+        React.createElement("button", { className: "orca-trash-act danger", disabled: busy || sorted.length === 0, onClick: purgeAllItems }, t("Empty trash bin"))
       )
     )
   );
@@ -490,7 +509,7 @@ function TrashButton() {
   }, []);
   return React.createElement(
     orca.components.Button,
-    { variant: "plain", className: "orca-trash-headbar-btn", title: "回收站", "aria-label": "回收站", onClick: openTrashDialog },
+    { variant: "plain", className: "orca-trash-headbar-btn", title: t("Trash bin"), "aria-label": t("Trash bin"), onClick: openTrashDialog },
     React.createElement("i", { className: "ti ti-trash orca-headbar-icon" }),
     count > 0 && React.createElement("span", { className: "orca-trash-menu-count" }, String(count))
   );
@@ -527,7 +546,7 @@ export async function enable(name) {
     console.log(`${name} loaded.`);
   } catch (e) {
     console.error(`[TRASH] ${name} 加载失败：`, e);
-    try { orca.notify?.("error", `回收站插件加载失败：${e?.message ?? e}`); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Trash bin plugin failed to load: ${msg}", { msg: String(e?.message ?? e) })); } catch { /* ignore */ }
   }
 }
 

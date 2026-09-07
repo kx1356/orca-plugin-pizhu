@@ -371,6 +371,29 @@ export const PIZHU_CSS = `
   outline: 1px solid var(--pizhu-accent);
   outline-offset: -1px;
 }
+.pizhu-pop-rebuild {
+  border: none;
+  background: color-mix(in srgb, var(--pizhu-accent) 12%, transparent);
+  color: var(--pizhu-accent);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--pizhu-font);
+  padding: 3px 8px;
+  margin-right: 4px;
+  border-radius: var(--pizhu-radius-c);
+  cursor: pointer;
+}
+.pizhu-pop-rebuild:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pizhu-accent) 20%, transparent);
+}
+.pizhu-pop-rebuild:focus-visible {
+  outline: 1px solid var(--pizhu-accent);
+  outline-offset: -1px;
+}
+.pizhu-pop-rebuild:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .pizhu-pop-empty {
   padding: 28px 14px;
   color: var(--pizhu-text-3);
