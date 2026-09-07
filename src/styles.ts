@@ -340,6 +340,16 @@ export const PIZHU_CSS = `
   line-height: 1;
   vertical-align: middle;
 }
+.pizhu-pop-page {
+  margin-bottom: 2px;
+}
+.pizhu-pop-page-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pizhu-text-3);
+  padding: 6px 10px 2px;
+  user-select: none;
+}
 .pizhu-pop-empty {
   padding: 28px 14px;
   color: var(--pizhu-text-3);

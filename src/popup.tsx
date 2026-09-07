@@ -107,12 +107,81 @@ async function findDocumentRoot(panels: any): Promise<DbId | undefined> {
   return fallbackRootFromBlocks((orca.state as any).blocks)
 }
 
+/** 沿 parent 链回溯到根块（页面） */
+function rootOf(id: DbId, blocks: any): DbId {
+  const visited = new Set<DbId>()
+  let cur = blocks[id]
+  while (cur != null && cur.parent != null && cur.parent !== "" && !visited.has(cur.id)) {
+    visited.add(cur.id)
+    cur = blocks[cur.parent]
+  }
+  return cur?.id as DbId
+}
+
+/** 页面（根块）标题：journal 显示日期，其余取别名 / text / _repr.cap */
+function pageTitle(block: any): string {
+  if (block == null) return "未命名"
+  const repr = block.properties?.find((p: any) => p.name === "_repr")?.value
+  if (repr?.type === "journal") {
+    try {
+      const d = repr.date instanceof Date ? repr.date : new Date(repr.date)
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat((orca.state as any).locale || undefined, {
+          dateStyle: "medium",
+        }).format(d)
+      }
+    } catch { /* ignore */ }
+  }
+  if (block.aliases?.length) {
+    const a = String(block.aliases[0])
+    return a.startsWith("/") ? a.split("/").at(-1) ?? a : a
+  }
+  if (block.text != null) {
+    const t = String(block.text).trim().replace(/(\s*#[^\s#]+)+$/u, "").trim()
+    if (t) return t
+  }
+  return repr?.cap ? String(repr.cap) : "未命名"
+}
+
+/** 全部文档的批注分组（按页面） */
+interface AnnPageGroup {
+  rootId: DbId
+  title: string
+  entries: AnnEntry[]
+}
+
+/** 扫描 blocks 全表：含批注的块 → 回溯根块去重 → 每个根块收集批注；当前文档排最前，其余按标题排序 */
+function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPageGroup[] {
+  const rootSet = new Set<DbId>()
+  for (const id of Object.keys(blocks)) {
+    const content = blocks[id]?.content
+    if (Array.isArray(content) && content.some((f: any) => f?.t === "pizhu.ann")) {
+      rootSet.add(rootOf(id as unknown as DbId, blocks))
+    }
+  }
+  const groups: AnnPageGroup[] = []
+  for (const rid of rootSet) {
+    const entries = collectAnnotations(rid)
+    if (entries.length === 0) continue
+    groups.push({ rootId: rid, title: pageTitle(blocks[rid]), entries })
+  }
+  groups.sort((a, b) => {
+    if (a.rootId === currentRootId) return -1
+    if (b.rootId === currentRootId) return 1
+    return a.title.localeCompare(b.title, "zh")
+  })
+  return groups
+}
+
 /** 顶栏按钮 + Popup 下拉卡：点按钮展开汇总，点外部/Esc 关闭，不占分栏空间 */
 export default function AnnPopupButton() {
-  const { blocks, panels } = useSnapshot(orca.state)
+  const { blocks, panels, plugins } = useSnapshot(orca.state)
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
   const [asyncRootId, setAsyncRootId] = useState(undefined)
+  // 显示范围：仅当前文档 / 全部文档（插件设置 popScope，Valtio 响应式）
+  const scope: "doc" | "all" =
+    (plugins as any)?.[pluginPrefix]?.settings?.popScope === "all" ? "all" : "doc"
 
   // 同步定位（block 视图命中；journal 视图返回 undefined，交由异步补）
   const syncRootId: DbId | undefined = useMemo(
@@ -137,6 +206,15 @@ export default function AnnPopupButton() {
     () => (rootBlockId == null ? [] : collectAnnotations(rootBlockId)),
     [rootBlockId, blocks],
   )
+  // 全部模式：按页面分组收集所有文档的批注
+  const groups: AnnPageGroup[] = useMemo(
+    () => (scope === "all" ? collectAllGroups(blocks, rootBlockId) : []),
+    [scope, blocks, rootBlockId],
+  )
+  const totalCount =
+    scope === "all"
+      ? groups.reduce((n, g) => n + g.entries.length, 0)
+      : entries.length
 
   const { Button, Popup } = orca.components as any
 
@@ -150,6 +228,30 @@ export default function AnnPopupButton() {
     await orca.commands.invokeCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
   }
 
+  const renderItem = (entry: AnnEntry) => (
+    <div
+      key={entry.ann.id}
+      className="pizhu-pop-item"
+      onClick={() => jump(entry.block.id)}
+    >
+      <div className="pizhu-pop-item-top">
+        <span className="pizhu-pop-ordinal">{entry.ordinal}</span>
+        <span className="pizhu-pop-original">{entry.ann.v}</span>
+        <span className="pizhu-pop-item-spacer" />
+        <button
+          className="pizhu-pop-del"
+          title="删除批注"
+          onClick={(e: any) => remove(e, entry.block.id, entry.ann.id)}
+        >
+          ✕
+        </button>
+      </div>
+      {entry.ann.note && (
+        <div className="pizhu-pop-note">{entry.ann.note}</div>
+      )}
+      <div className="pizhu-pop-blockref">{blockPreview(entry)}</div>
+    </div>
+  )
   return (
     <>
       <span ref={btnRef} className="pizhu-pop-anchor">
@@ -179,40 +281,24 @@ export default function AnnPopupButton() {
       >
         <div className="pizhu-pop-inner">
           <div className="pizhu-pop-header">
-            批注 <span className="pizhu-pop-count">{entries.length}</span>
+            批注 <span className="pizhu-pop-count">{totalCount}</span>
           </div>
-          {entries.length === 0 ? (
+          {totalCount === 0 ? (
             <div className="pizhu-pop-empty">
-              当前文档还没有批注。
+              {scope === "doc" ? "当前文档还没有批注。" : "所有文档都还没有批注。"}
               <br />
               选中文字后按 Ctrl+Alt+A 添加。
             </div>
           ) : (
             <div className="pizhu-pop-list">
-              {entries.map((entry) => (
-                <div
-                  key={entry.ann.id}
-                  className="pizhu-pop-item"
-                  onClick={() => jump(entry.block.id)}
-                >
-                  <div className="pizhu-pop-item-top">
-                    <span className="pizhu-pop-ordinal">{entry.ordinal}</span>
-                    <span className="pizhu-pop-original">{entry.ann.v}</span>
-                    <span className="pizhu-pop-item-spacer" />
-                    <button
-                      className="pizhu-pop-del"
-                      title="删除批注"
-                      onClick={(e: any) => remove(e, entry.block.id, entry.ann.id)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  {entry.ann.note && (
-                    <div className="pizhu-pop-note">{entry.ann.note}</div>
-                  )}
-                  <div className="pizhu-pop-blockref">{blockPreview(entry)}</div>
-                </div>
-              ))}
+              {scope === "all"
+                ? groups.map((g) => (
+                    <div key={g.rootId} className="pizhu-pop-page">
+                      <div className="pizhu-pop-page-title">{g.title}</div>
+                      {g.entries.map((entry) => renderItem(entry))}
+                    </div>
+                  ))
+                : entries.map((entry) => renderItem(entry))}
             </div>
           )}
         </div>

@@ -58,6 +58,16 @@ const SCHEMA = {
     description: "回收站中的页面快照超过该天数自动清除。默认 30 天。",
     defaultValue: 30,
   },
+  popScope: {
+    type: "singleChoice",
+    label: "批注下拉卡范围",
+    description: "顶栏批注下拉卡显示的范围：仅当前打开文档，或全部文档（按页面分组，当前文档排最前）。",
+    defaultValue: "doc",
+    choices: [
+      { label: "仅当前文档", value: "doc" },
+      { label: "全部文档", value: "all" },
+    ],
+  },
 }
 
 /** 根据设置开关，启用/停用可选功能模块（开关在设置里可随时切换） */
