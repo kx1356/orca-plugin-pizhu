@@ -9,7 +9,6 @@ import {
   updateAnn,
   extractRange,
   getActiveRootBlockId,
-  findViewPanelByView,
   type AnnFragment,
 } from "./ann"
 import { openAnnCard } from "./store"
@@ -249,42 +248,6 @@ export function registerCommands(pluginName: string) {
     )
   }
 
-  // ============ 打开汇总面板 ============
-  const openCmd = `${pluginName}.openPanel`
-  if (orca.state.commands[openCmd] == null) {
-    orca.commands.registerCommand(
-      openCmd,
-      () => {
-        const activePanelId = orca.state.activePanel
-        if (!activePanelId) {
-          orca.notify("warn", "没有可用的面板")
-          return
-        }
-        // 已打开则复用，避免重复建面板
-        let targetId: string | null = null
-        const existing = findViewPanelByView("pizhu.panel", orca.state.panels)
-        if (existing != null) {
-          targetId = existing.id
-        } else {
-          const rootBlockId = getActiveRootBlockId()
-          targetId = orca.nav.addTo(activePanelId, "right", {
-            view: "pizhu.panel",
-            viewArgs: { rootBlockId },
-            viewState: {},
-          })
-        }
-        if (targetId) {
-          // addTo 创建后需显式导航设置视图，再切焦点
-          orca.nav.goTo("pizhu.panel", {}, targetId)
-          setTimeout(() => orca.nav.switchFocusTo(targetId), 80)
-        } else {
-          orca.notify("error", "无法创建批注面板")
-        }
-      },
-      "打开批注面板",
-    )
-  }
-
   // ============ 查看当前块批注（备用入口） ============
   const viewCmd = `${pluginName}.viewBlockAnns`
   if (orca.state.commands[viewCmd] == null) {
@@ -306,7 +269,6 @@ export function unregisterCommands(pluginName: string) {
     `${pluginName}.ann.add`,
     `${pluginName}.ann.edit`,
     `${pluginName}.ann.remove`,
-    `${pluginName}.openPanel`,
     `${pluginName}.viewBlockAnns`,
   ]
   for (const id of ids) {

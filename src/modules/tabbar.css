@@ -1,5 +1,6 @@
 /* ============================================================
-   Orca Tab Bar — 缓存编辑器页签（Fluent 2 风格）
+   Orca Tab Bar — 缓存编辑器页签（Fluent 2 / Win11 资源管理器风格）
+   不透明分层：页签条 = bg-2 层，激活页签 = bg-1 卡片
    颜色变量全部映射到 Orca 内置变量，跟随主题明暗
    ============================================================ */
 
@@ -7,8 +8,10 @@
 body.orca-tabbar-on {
   --orca-tabbar-h: 38px;
   --orca-tabbar-accent: var(--orca-color-primary-5, #0F6CBD);
-  --orca-tabbar-bg: var(--orca-color-bg-1, #ffffff);
+  --orca-tabbar-bg: var(--orca-color-bg-2, #fafafa);      /* 页签条层 */
+  --orca-tabbar-surface: var(--orca-color-bg-1, #ffffff); /* 激活页签卡片 */
   --orca-tabbar-text: var(--orca-color-text-2, #616161);
+  --orca-tabbar-text-1: var(--orca-color-text-1, #242424);
   --orca-tabbar-border: var(--orca-color-separator, rgba(0, 0, 0, 0.10));
   --orca-tabbar-radius: 6px;
   --orca-tabbar-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", var(--orca-fontfamily-ui, system-ui), sans-serif;
@@ -19,7 +22,7 @@ body.orca-tabbar-on #main {
   margin-top: calc(var(--orca-height-headbar) + var(--orca-tabbar-h));
 }
 
-/* ---- 页签条：Fluent 亚克力材质（横排，默认） ---- */
+/* ---- 页签条：不透明底色层（Fluent 不给常驻条用亚克力） ---- */
 .orca-tabbar {
   position: fixed;
   top: var(--orca-height-headbar);
@@ -31,17 +34,15 @@ body.orca-tabbar-on #main {
   align-items: center;
   gap: 2px;
   padding: 0 8px;
-  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 72%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(125%);
-  backdrop-filter: blur(20px) saturate(125%);
-  border-bottom: 1px solid color-mix(in oklch, var(--orca-tabbar-border) 55%, transparent);
+  background-color: var(--orca-tabbar-bg);
+  border-bottom: 1px solid var(--orca-tabbar-border);
   font-family: var(--orca-tabbar-font);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-/* ---- 单个页签：Fluent 填充式激活态 ---- */
+/* ---- 单个页签：Fluent 2 微妙项 ---- */
 .orca-tab {
   position: relative;
   display: inline-flex;
@@ -49,8 +50,8 @@ body.orca-tabbar-on #main {
   gap: 6px;
   flex: 0 0 auto;
   max-width: 220px;
-  height: calc(var(--orca-tabbar-h) - 10px);
-  padding: 0 6px 0 10px;
+  height: 28px;
+  padding: 0 7px 0 10px;
   border-radius: var(--orca-tabbar-radius);
   font-size: 13px;
   line-height: 1;
@@ -59,44 +60,48 @@ body.orca-tabbar-on #main {
   white-space: nowrap;
   user-select: none;
   background-color: transparent;
-  transition: background-color var(--orca-tabbar-transition), box-shadow var(--orca-tabbar-transition);
+  transition:
+    background-color var(--orca-tabbar-transition),
+    box-shadow var(--orca-tabbar-transition),
+    color var(--orca-tabbar-transition);
 }
 .orca-tab:hover {
-  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 6%, transparent);
+  color: var(--orca-tabbar-text-1);
+  background-color: color-mix(in srgb, var(--orca-tabbar-text-1) 5%, transparent);
 }
 
-/* 激活页签（聚焦面板的当前项）：Fluent 填充表面 + 细描边 + 微阴影 */
+/* 激活页签（聚焦面板当前项）：bg-1 卡片 + 细描边 + Fluent 微阴影 */
 .orca-tab-active {
-  color: var(--orca-color-text-1, #242424);
+  color: var(--orca-tabbar-text-1);
   font-weight: 600;
-  background-color: var(--orca-tabbar-bg);
+  background-color: var(--orca-tabbar-surface);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--orca-color-text-1, #242424) 9%, transparent),
-    0 1px 3px rgba(0, 0, 0, 0.10);
+    inset 0 0 0 1px color-mix(in srgb, var(--orca-tabbar-accent) 85%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.07);
 }
 .orca-tab-active:hover {
-  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 3%, var(--orca-tabbar-bg));
+  background-color: var(--orca-tabbar-surface);
 }
 
-/* 当前页签（非聚焦面板）：弱化表面 */
+/* 当前页签（非聚焦面板）：半强度表面，提示“另一面板停留在这里” */
 .orca-tab-current {
-  position: relative;
+  color: var(--orca-tabbar-text-1);
   font-weight: 600;
-  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 55%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orca-color-text-1, #242424) 6%, transparent);
+  background-color: color-mix(in srgb, var(--orca-tabbar-surface) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orca-tabbar-text-1) 6%, transparent);
 }
 .orca-tab-current:hover {
-  background-color: color-mix(in srgb, var(--orca-tabbar-bg) 75%, transparent);
+  background-color: color-mix(in srgb, var(--orca-tabbar-surface) 75%, transparent);
 }
 
-/* 分隔线 / 文字 / 图标 */
+/* 面板组分隔线 */
 .orca-tab-sep {
   flex: 0 0 auto;
   width: 1px;
-  height: calc(var(--orca-tabbar-h) - 18px);
+  height: 16px;
   margin: 0 5px;
   border-radius: 1px;
-  background-color: var(--orca-tabbar-border, rgba(128, 128, 128, 0.3));
+  background-color: color-mix(in srgb, var(--orca-tabbar-border) 70%, transparent);
 }
 .orca-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .orca-tab-icon {
@@ -108,7 +113,50 @@ body.orca-tabbar-on #main {
 .orca-tab:hover .orca-tab-icon { opacity: 0.85; }
 .orca-tab-active .orca-tab-icon { opacity: 1; }
 
-/* 拖拽状态 */
+/* ---- 固定/关闭按钮：Fluent 4px 圆角方形热区（20×20） ---- */
+.orca-tab-pin,
+.orca-tab-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 4px;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity var(--orca-tabbar-transition), background-color var(--orca-tabbar-transition);
+}
+/* 固定按钮：悬停页签时才出现 */
+.orca-tab-pin {
+  width: auto;
+  min-width: 20px;
+  padding: 0 3px;
+  opacity: 0;
+}
+.orca-tab:hover .orca-tab-pin { opacity: 0.55; }
+.orca-tab-pin:hover,
+.orca-tab-close:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--orca-tabbar-text-1) 8%, transparent);
+}
+/* 关闭按钮常显 */
+.orca-tab-close { font-size: 14px; }
+
+/* 固定页签：pin 实心常显、靠右，作为固定状态标识 */
+.orca-tab-pinned .orca-tab-pin {
+  margin-left: auto;
+  opacity: 0.9;
+  color: var(--orca-tabbar-accent);
+}
+.orca-tab-pinned .orca-tab-pin:hover {
+  opacity: 1;
+  background-color: color-mix(in oklch, var(--orca-tabbar-accent) 14%, transparent);
+}
+
+/* ---- 拖拽状态：Fluent 指示线 ---- */
 .orca-tab-dragging { opacity: 0.45; }
 .orca-tab-insert { box-shadow: inset 2px 0 0 0 var(--orca-tabbar-accent); }
 
@@ -118,55 +166,23 @@ body.orca-tabbar-on #main {
   z-index: var(--orca-zindex-modal, 9999);
   pointer-events: none;
   opacity: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background-color: color-mix(in oklch, var(--orca-tabbar-accent) 18%, transparent);
   border: 1.5px solid var(--orca-tabbar-accent);
   transition: opacity .12s, left .12s, top .12s, width .12s, height .12s;
 }
 .orca-tab-drophint-on { opacity: 1; }
 
-/* 固定按钮：平时不可见，悬停页签时显示（纯透明度切换，不改变布局） */
-.orca-tab-pin {
-  flex: 0 0 auto;
-  font-size: 12px;
-  line-height: 1;
-  opacity: 0;
-  border-radius: var(--orca-tabbar-radius);
-  padding: 0 3px;
-  transition: opacity var(--orca-tabbar-transition), background-color var(--orca-tabbar-transition);
-}
-.orca-tab:hover .orca-tab-pin { opacity: 0.55; }
-.orca-tab-pin:hover { opacity: 1; background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 8%, transparent); }
-
-/* 关闭按钮：常显 */
-.orca-tab-close {
-  flex: 0 0 auto;
-  font-size: 15px;
-  line-height: 1;
-  opacity: 0.55;
-  border-radius: var(--orca-tabbar-radius);
-  padding: 0 3px;
-  transition: opacity var(--orca-tabbar-transition), background-color var(--orca-tabbar-transition);
-}
-.orca-tab-close:hover { opacity: 1; background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 8%, transparent); }
-
-/* 固定页签：pin 实心常显、靠右，作为固定状态标识 */
-.orca-tab-pinned .orca-tab-pin {
-  margin-left: auto;
-  opacity: 0.9;
-  color: var(--orca-tabbar-accent);
-}
-.orca-tab-pinned .orca-tab-pin:hover { opacity: 1; background-color: color-mix(in oklch, var(--orca-tabbar-accent) 14%, transparent); }
-
 /* 页签条滚动条 */
 .orca-tabbar::-webkit-scrollbar { height: 4px; width: 4px; }
 .orca-tabbar::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--orca-color-text-1, #242424) 20%, transparent);
+  background-color: color-mix(in srgb, var(--orca-tabbar-text-1) 22%, transparent);
   border-radius: 4px;
 }
 
 /* ============================================================
    垂直模式（body 挂 orca-tabbar-vertical）
+   Fluent v9 垂直页签：激活项带左侧 3px 强调条
    ============================================================ */
 body.orca-tabbar-vertical.orca-tabbar-on { --orca-tabbar-w: 150px; }
 body.orca-tabbar-vertical.orca-tabbar-on #main {
@@ -186,13 +202,34 @@ body.orca-tabbar-vertical .orca-tabbar {
   overflow-x: hidden;
   overflow-y: auto;
   border-bottom: none;
-  border-right: 1px solid color-mix(in oklch, var(--orca-color-separator) 65%, transparent);
+  border-right: 1px solid var(--orca-tabbar-border);
 }
-body.orca-tabbar-vertical .orca-tab { width: 100%; max-width: none; height: 30px; }
+body.orca-tabbar-vertical .orca-tab {
+  width: 100%;
+  max-width: none;
+  height: 30px;
+}
 body.orca-tabbar-vertical .orca-tab-label { flex: 1 1 auto; min-width: 0; }
 body.orca-tabbar-vertical .orca-tab-close { margin-left: auto; }
-body.orca-tabbar-vertical .orca-tab-sep { width: auto; height: 1px; margin: 3px 6px; }
-body.orca-tabbar-vertical .orca-tab-insert { box-shadow: inset 0 2px 0 0 var(--orca-tabbar-accent); }
+body.orca-tabbar-vertical .orca-tab-sep {
+  width: auto;
+  height: 1px;
+  margin: 3px 6px;
+}
+/* 垂直模式：激活项左侧 3px 强调条（Fluent v9 垂直页签规范） */
+body.orca-tabbar-vertical .orca-tab-active {
+  box-shadow:
+    inset 3px 0 0 0 var(--orca-tabbar-accent),
+    inset 0 0 0 1px color-mix(in srgb, var(--orca-tabbar-accent) 85%, transparent);
+}
+body.orca-tabbar-vertical .orca-tab-current {
+  box-shadow:
+    inset 3px 0 0 0 color-mix(in srgb, var(--orca-tabbar-text-1) 30%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--orca-tabbar-text-1) 6%, transparent);
+}
+body.orca-tabbar-vertical .orca-tab-insert {
+  box-shadow: inset 0 2px 0 0 var(--orca-tabbar-accent);
+}
 
 /* 垂直模式宽度调节条 */
 .orca-tabbar-resize { display: none; }

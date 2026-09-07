@@ -3,7 +3,8 @@ import { setupL10N, t } from "./libs/l10n"
 import zhCN from "./translations/zhCN"
 import AnnotationInline, { AnnotationCard, setPluginPrefix as setRendererPrefix } from "./renderer"
 import { registerCommands, unregisterCommands } from "./commands"
-import PizhuPanel, { setPluginPrefix as setPanelPrefix } from "./panel"
+import { findViewPanelByView } from "./ann"
+import AnnPopupButton, { setPluginPrefix as setPopupPrefix } from "./popup"
 import { PIZHU_CSS } from "./styles"
 import { enable as enableTabbar, disable as disableTabbar } from "./modules/tabbar"
 import { enable as enableTrashbin, disable as disableTrashbin } from "./modules/trashbin"
@@ -87,7 +88,7 @@ export async function load(_name: string) {
 
   // 同步插件名前缀到渲染器/面板（命令 ID 依赖）
   setRendererPrefix(pluginName)
-  setPanelPrefix(pluginName)
+  setPopupPrefix(pluginName)
 
   // 1. 行内渲染器：波浪线 + 角标
   orca.renderers.registerInline("pizhu.ann", false, AnnotationInline)
@@ -95,34 +96,30 @@ export async function load(_name: string) {
   // 2. 命令
   registerCommands(pluginName)
 
-  // 3. 汇总面板
-  orca.panels.registerPanel("pizhu.panel", PizhuPanel)
+  // 2b. 清理旧版本遗留的 pizhu.panel 侧栏（v3.2.0 起改为顶栏下拉卡）
+  try {
+    const stale = findViewPanelByView("pizhu.panel", orca.state.panels)
+    if (stale != null) orca.nav.close(stale.id)
+  } catch {
+    /* ignore */
+  }
 
-  // 4. 工具栏按钮：添加批注（编辑器命令，工具栏绑定 editor command 已验证）
+  // 3. 工具栏按钮：添加批注（编辑器命令，工具栏绑定 editor command 已验证）
   orca.toolbar.registerToolbarButton(`${pluginName}.ann.add`, {
     icon: "ti ti-message-circle-plus",
     tooltip: t("Add annotation"),
     command: `${pluginName}.ann.add`,
   })
 
-  // 5. 顶栏按钮：打开批注面板（普通命令，headbar 模式与 mcard 一致）
-  const { Button } = orca.components as any
-  orca.headbar.registerHeadbarButton(`${pluginName}.openPanel`, () => (
-    <Button
-      variant="plain"
-      onClick={() => orca.commands.invokeCommand(`${pluginName}.openPanel`)}
-      title={t("Open annotation panel")}
-    >
-      <span className="pizhu-headbar-btn">
-        <i className="ti ti-notes" /> 批注
-      </span>
-    </Button>
+  // 4. 顶栏按钮：批注下拉卡（Popup 锚定按钮，汇总当前文档批注，不占分栏空间）
+  orca.headbar.registerHeadbarButton(`${pluginName}.annPopup`, () => (
+    <AnnPopupButton />
   ))
 
-  // 6. 注入样式（批注 + 页签栏 + 回收站）
+  // 5. 注入样式（批注 + 页签栏 + 回收站）
   orca.themes.injectCSS(`${PIZHU_CSS}\n${TABBAR_CSS}\n${TRASH_CSS}`, pluginName)
 
-  // 6b. 设置 schema 与可选功能开关
+  // 5b. 设置 schema 与可选功能开关
   try {
     ;(orca.plugins as any).setSettingsSchema(pluginName, SCHEMA)
   } catch {
@@ -136,7 +133,7 @@ export async function load(_name: string) {
     settingsUnsub = null
   }
 
-  // 7. 挂载批注卡浮层
+  // 6. 挂载批注卡浮层
   cardHost = document.createElement("div")
   cardHost.id = "pizhu-card-host"
   document.body.appendChild(cardHost)
@@ -163,14 +160,13 @@ export async function unload() {
 
   // 反注册全部
   orca.renderers.unregisterInline("pizhu.ann")
-  orca.panels.unregisterPanel("pizhu.panel")
   try {
     orca.toolbar.unregisterToolbarButton(`${pluginName}.ann.add`)
   } catch {
     /* ignore */
   }
   try {
-    orca.headbar.unregisterHeadbarButton(`${pluginName}.openPanel`)
+    orca.headbar.unregisterHeadbarButton(`${pluginName}.annPopup`)
   } catch {
     /* ignore */
   }
