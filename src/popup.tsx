@@ -183,6 +183,20 @@ export default function AnnPopupButton() {
   const scope: "doc" | "all" =
     (plugins as any)?.[pluginPrefix]?.settings?.popScope === "all" ? "all" : "doc"
 
+  // 卡内切换：写入插件设置（app 级失败则回退 repo 级），与设置面板双向同步
+  const toggleScope = async () => {
+    const next = scope === "doc" ? "all" : "doc"
+    const cur = { ...((orca.state as any).plugins?.[pluginPrefix]?.settings ?? {}) }
+    cur.popScope = next
+    try {
+      await orca.plugins.setSettings("app", pluginPrefix, cur)
+    } catch {
+      try {
+        await orca.plugins.setSettings("repo", pluginPrefix, cur)
+      } catch { /* ignore */ }
+    }
+  }
+
   // 同步定位（block 视图命中；journal 视图返回 undefined，交由异步补）
   const syncRootId: DbId | undefined = useMemo(
     () => findDocumentRootSync(panels),
@@ -282,6 +296,14 @@ export default function AnnPopupButton() {
         <div className="pizhu-pop-inner">
           <div className="pizhu-pop-header">
             批注 <span className="pizhu-pop-count">{totalCount}</span>
+            <span className="pizhu-pop-item-spacer" />
+            <button
+              className="pizhu-pop-scope"
+              onClick={toggleScope}
+              title={scope === "doc" ? "切换：显示所有文档的批注" : "切换：只显示当前文档的批注"}
+            >
+              {scope === "doc" ? "仅当前文档" : "全部文档"}
+            </button>
           </div>
           {totalCount === 0 ? (
             <div className="pizhu-pop-empty">

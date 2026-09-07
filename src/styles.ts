@@ -323,6 +323,8 @@ export const PIZHU_CSS = `
   font-size: 14px;
   font-weight: 600;
   flex: none;
+  display: flex;
+  align-items: center;
 }
 .pizhu-pop-count {
   display: inline-flex;
@@ -349,6 +351,25 @@ export const PIZHU_CSS = `
   color: var(--pizhu-text-3);
   padding: 6px 10px 2px;
   user-select: none;
+}
+.pizhu-pop-scope {
+  border: none;
+  background: transparent;
+  color: var(--pizhu-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  font-family: var(--pizhu-font);
+  padding: 3px 8px;
+  margin-left: 4px;
+  border-radius: var(--pizhu-radius-c);
+  cursor: pointer;
+}
+.pizhu-pop-scope:hover {
+  background: color-mix(in srgb, var(--pizhu-text-1) 6%, transparent);
+}
+.pizhu-pop-scope:focus-visible {
+  outline: 1px solid var(--pizhu-accent);
+  outline-offset: -1px;
 }
 .pizhu-pop-empty {
   padding: 28px 14px;
