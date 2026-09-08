@@ -8,10 +8,9 @@ import {
   replaceRange,
   updateAnn,
   extractRange,
-  getActiveRootBlockId,
   type AnnFragment,
 } from "./ann"
-import { openAnnCard } from "./store"
+import { refreshDocCacheByBlock } from "./annCache"
 
 /** 保存 blocks content 的辅助函数 */
 async function setBlockContent(
@@ -201,6 +200,7 @@ export function registerCommands(pluginName: string) {
         }
         const newContent = replaceRange(content, start, end, ann)
         await setBlockContent(cursor, blockId, newContent)
+        refreshDocCacheByBlock(blockId)
 
         // 返回撤销数据：恢复旧 content
         return { ret: null, undoArgs: { blockId, oldContent: content } }
@@ -208,6 +208,7 @@ export function registerCommands(pluginName: string) {
       async (panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
         if (undoArgs) {
           await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
+          refreshDocCacheByBlock(undoArgs.blockId)
         }
       },
       { label: "添加批注" },
@@ -226,6 +227,7 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = updateAnn(content, annId, { note, modified: Date.now() })
         await setBlockContent(null, blockId, newContent)
+        refreshDocCacheByBlock(blockId)
       },
       "编辑批注",
     )
@@ -243,24 +245,12 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = removeAnn(content, annId)
         await setBlockContent(null, blockId, newContent)
+        refreshDocCacheByBlock(blockId)
       },
       "删除批注",
     )
   }
 
-  // ============ 查看当前块批注（备用入口） ============
-  const viewCmd = `${pluginName}.viewBlockAnns`
-  if (orca.state.commands[viewCmd] == null) {
-    orca.commands.registerCommand(
-      viewCmd,
-      (blockId: DbId | undefined) => {
-        const bid = blockId ?? getActiveRootBlockId()
-        if (bid == null) return
-        openAnnCard(bid, "", 0, 0) // 仅用于演示入口，实际以面板为主
-      },
-      "查看当前块批注",
-    )
-  }
 }
 
 /** 反注册批注命令 */
@@ -269,7 +259,6 @@ export function unregisterCommands(pluginName: string) {
     `${pluginName}.ann.add`,
     `${pluginName}.ann.edit`,
     `${pluginName}.ann.remove`,
-    `${pluginName}.viewBlockAnns`,
   ]
   for (const id of ids) {
     try {

@@ -86,13 +86,60 @@ async function interceptDelete(args) {
   if (!trashEnabled()) return b("delete-blocks", ...args);
   const ids = Array.isArray(args[0]) ? args[0] : [];
   const repo = orca.state.repo;
-  for (const id of ids) {
-    let block = null;
-    try { block = await b("get-block", id); } catch { block = null; }
-    // 只快照顶层块（无父块 = 页面）
-    if (block && (block.parent == null || block.parent === undefined || block.parent === "")) {
-      await snapshotPage(b, repo, id, block);
+  // 阶段一：只读取回所有顶层页面块快照，全部成功才继续（避免部分快照写入后删除被中止的“幽灵快照”）
+  const pages = [];
+  try {
+    for (const id of ids) {
+      let block = null;
+      try { block = await b("get-block", id); } catch { block = null; }
+      // 只快照顶层块（无父块 = 页面）；非顶层块直接随删除，不做快照
+      if (block && (block.parent == null || block.parent === undefined || block.parent === "")) {
+        const tree = (await snapshotTree(b, id)) ?? block;
+        pages.push({ pageId: id, block, tree });
+      }
     }
+  } catch (e) {
+    console.error("[TRASH] 快照阶段失败，已取消删除：", e);
+    try { orca.notify?.("error", `回收站：读取快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    return [];
+  }
+  // 阶段二：全部快照就绪后才写入文件与索引；任一写失败则回滚已写文件并取消删除
+  const writes = [];
+  try {
+    for (const p of pages) {
+      const record = {
+        pageId: p.pageId,
+        deletedAt: Date.now(),
+        originalParent: p.block?.parent ?? null,
+        originalLeft: p.block?.left ?? null,
+        tree: p.tree,
+      };
+      const file = `trash/${repo}/${p.pageId}.json`;
+      await b("set-plugin-file", pluginName, file, JSON.stringify(record));
+      writes.push({
+        pageId: p.pageId,
+        fileName: file,
+        deletedAt: record.deletedAt,
+        originalParent: record.originalParent,
+        originalLeft: record.originalLeft,
+        title: titleOf(p.tree),
+      });
+    }
+    const list = await readIndex(b, repo);
+    const merged = [...list];
+    for (const w of writes) {
+      const i = merged.findIndex(e => e.pageId === w.pageId);
+      if (i >= 0) merged[i] = w; else merged.push(w);
+    }
+    await writeIndex(b, repo, merged);
+    for (const w of writes) {
+      try { orca.notify?.("success", `已移入回收站：${w.title}`, { title: "回收站" }); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    for (const w of writes) { try { await b("remove-plugin-file", pluginName, w.fileName); } catch { /* ignore */ } }
+    console.error("[TRASH] 快照写入失败，已回滚并取消删除：", e);
+    try { orca.notify?.("error", `回收站：保存快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    return [];
   }
   return b("delete-blocks", ...args);
 }
@@ -118,37 +165,13 @@ async function snapshotTree(b, blockId, seen = new Set(), depth = 0) {
   return {
     id: block.id,
     text: typeof block.text === "string" ? block.text : "",
+    content: Array.isArray(block.content) ? block.content : null, // 保存富文本（含批注 fragment），恢复时还原
     aliases: Array.isArray(block.aliases) ? block.aliases : [],
     properties: Array.isArray(block.properties) ? block.properties : [],
     kids
   };
 }
 
-async function snapshotPage(b, repo, pageId, block) {
-  const tree = (await snapshotTree(b, pageId)) ?? block;
-  const record = {
-    pageId,
-    deletedAt: Date.now(),
-    originalParent: block?.parent ?? null,
-    originalLeft: block?.left ?? null,
-    tree
-  };
-  const file = `trash/${repo}/${pageId}.json`;
-  await b("set-plugin-file", pluginName, file, JSON.stringify(record));
-  const list = await readIndex(b, repo);
-  const entry = {
-    pageId,
-    fileName: file,
-    deletedAt: record.deletedAt,
-    originalParent: record.originalParent,
-    originalLeft: record.originalLeft,
-    title: titleOf(tree)
-  };
-  await writeIndex(b, repo, [...list.filter(e => e.pageId !== pageId), entry]);
-  try {
-    orca.notify?.("success", `已移入回收站：${entry.title}`, { title: "回收站" });
-  } catch { /* ignore */ }
-}
 
 function indexKey(repo) {
   return `trash-index:${repo}`;
@@ -196,8 +219,19 @@ async function restorePage(pageId) {
   const b = backend();
   const repo = orca.state.repo;
   const file = `trash/${repo}/${pageId}.json`;
-  const raw = await b("get-plugin-file", pluginName, file);
-  const record = JSON.parse(raw);
+  let raw, record;
+  try {
+    raw = await b("get-plugin-file", pluginName, file);
+    record = JSON.parse(String(raw ?? ""));
+  } catch (e) {
+    console.error("[TRASH] 读取快照失败：", e);
+    try { orca.notify?.("error", `恢复失败：快照文件不可读（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    return;
+  }
+  if (record == null || typeof record !== "object" || record.tree == null) {
+    try { orca.notify?.("error", "恢复失败：快照内容损坏，请先彻底删除该条目", { title: "回收站" }); } catch { /* ignore */ }
+    return;
+  }
   await rebuildTree(b, record.tree, record.originalParent ?? null, record.originalLeft ?? null);
   try { await b("remove-plugin-file", pluginName, file); } catch { /* ignore */ }
   const list = await readIndex(b, repo);
@@ -253,7 +287,11 @@ function splitRepr(node) {
     : null;
   const repr = reprProp && reprProp.value ? reprProp.value : { type: "text" };
   const text = (typeof node?.text === "string" ? node.text : "").replace(/\n+$/, "");
-  return { repr, content: text ? [{ t: "t", v: text }] : [] };
+  // 优先还原快照内的富文本 content（保留批注/加粗/链接等），缺失时退回纯文本
+  const content = Array.isArray(node?.content) && node.content.length > 0
+    ? node.content
+    : (text ? [{ t: "t", v: text }] : []);
+  return { repr, content };
 }
 
 // 彻底删除单个

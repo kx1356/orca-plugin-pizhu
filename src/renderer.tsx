@@ -39,7 +39,6 @@ export default function AnnotationInline({
     null as { x: number; y: number } | null,
   )
   const hideTimer = useRef(null) as any
-  const elRef = useRef(null) as any
 
   useEffect(
     () => () => {
@@ -108,7 +107,6 @@ export default function AnnotationInline({
   return (
     <>
       <span
-        ref={elRef}
         className="orca-inline pizhu-ann"
         data-ann-id={ann.id}
         style={textStyle}
@@ -146,6 +144,11 @@ export function AnnotationCard() {
   const { blocks } = useSnapshot(orca.state)
   const [draft, setDraft] = useState("")
   const taRef = useRef(null) as any
+
+  // 打开/切换批注时重置草稿，避免残留上一次编辑内容（卡片常驻挂载，state 不随 annId 重置）
+  useEffect(() => {
+    setDraft("")
+  }, [card.annId, card.visible])
 
   // 批注已不存在（可能被删除）时自动关闭。
   // 必须在 effect 中改全局状态，渲染期间 setState 是 React 反模式。

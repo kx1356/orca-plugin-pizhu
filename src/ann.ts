@@ -178,21 +178,49 @@ export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
   return entries
 }
 
-/**
- * 在面板树（RowPanel/ColumnPanel/ViewPanel）中查找指定 id 的 ViewPanel。
- */
-export function findViewPanel(
-  panelId: string,
-  root: any,
-): any | null {
-  if (root == null) return null
-  if (root.id === panelId) return root
-  if (root.children == null) return null
-  for (const child of root.children) {
-    const found = findViewPanel(panelId, child)
-    if (found) return found
+/** 沿 parent 链回溯到根块（页面） */
+export function rootOf(id: DbId, blocks: any): DbId {
+  const visited = new Set<DbId>()
+  let cur = blocks[id]
+  while (cur != null && cur.parent != null && cur.parent !== "" && !visited.has(cur.id)) {
+    visited.add(cur.id)
+    cur = blocks[cur.parent]
   }
-  return null
+  return cur?.id as DbId
+}
+
+/** 页面（根块）标题：journal 显示日期，其余取别名 / text / _repr.cap */
+export function pageTitle(block: any): string {
+  if (block == null) return "未命名"
+  const repr = block.properties?.find((p: any) => p.name === "_repr")?.value
+  if (repr?.type === "journal") {
+    try {
+      const d = repr.date instanceof Date ? repr.date : new Date(repr.date)
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat((orca.state as any).locale || undefined, {
+          dateStyle: "medium",
+        }).format(d)
+      }
+    } catch { /* ignore */ }
+  }
+  if (block.aliases?.length) {
+    const a = String(block.aliases[0])
+    return a.startsWith("/") ? a.split("/").at(-1) ?? a : a
+  }
+  if (block.text != null) {
+    const t = String(block.text).trim().replace(/(\s*#[^\s#]+)+$/u, "").trim()
+    if (t) return t
+  }
+  return repr?.cap ? String(repr.cap) : "未命名"
+}
+
+/** 批注所在块的文本预览（截断到 60 字） */
+export function blockPreview(entry: AnnEntry): string {
+  const text = (entry.block.content ?? [])
+    .map((f: any) => (typeof f?.v === "string" ? f.v : ""))
+    .join("")
+    .trim()
+  return text.length > 60 ? text.slice(0, 60) + "…" : text
 }
 
 /**
@@ -212,12 +240,3 @@ export function findViewPanelByView(
   return null
 }
 
-/** 取当前活跃面板的根块 id（block 视图） */
-export function getActiveRootBlockId(): DbId | undefined {
-  const panel = findViewPanel(orca.state.activePanel, orca.state.panels)
-  if (panel == null) return undefined
-  if (panel.view === "block") {
-    return (panel.viewArgs?.blockId as DbId) ?? (panel.viewState?.rootBlockId as DbId)
-  }
-  return (panel.viewState?.rootBlockId as DbId) ?? (panel.viewArgs?.rootBlockId as DbId)
-}

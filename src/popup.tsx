@@ -1,6 +1,14 @@
 // 顶栏批注下拉卡：Popup 组件锚定顶栏按钮，汇总当前文档所有批注（替代原侧栏）
 import type { DbId } from "./orca.d.ts"
-import { collectAnnotations, findViewPanelByView, type AnnEntry } from "./ann"
+import {
+  collectAnnotations,
+  findViewPanelByView,
+  pageTitle,
+  rootOf,
+  blockPreview,
+  type AnnEntry,
+} from "./ann"
+import { ensureMemCache, getCachedPages, refreshDocCache, type CachedPage } from "./annCache"
 
 const { useState, useRef, useEffect, useMemo } = window.React as any
 const { useSnapshot } = window.Valtio as any
@@ -9,18 +17,6 @@ const { useSnapshot } = window.Valtio as any
 let pluginPrefix = "orca-pizhu"
 export function setPluginPrefix(p: string) {
   pluginPrefix = p
-}
-
-function stripRichText(f: any): string {
-  return typeof f?.v === "string" ? f.v : ""
-}
-
-function blockPreview(entry: AnnEntry): string {
-  const text = (entry.block.content ?? [])
-    .map(stripRichText)
-    .join("")
-    .trim()
-  return text.length > 60 ? text.slice(0, 60) + "…" : text
 }
 
 /** journal 视图的日期参数 → get-journal-block 后端可接受的格式 */
@@ -107,47 +103,35 @@ async function findDocumentRoot(panels: any): Promise<DbId | undefined> {
   return fallbackRootFromBlocks((orca.state as any).blocks)
 }
 
-/** 沿 parent 链回溯到根块（页面） */
-function rootOf(id: DbId, blocks: any): DbId {
-  const visited = new Set<DbId>()
-  let cur = blocks[id]
-  while (cur != null && cur.parent != null && cur.parent !== "" && !visited.has(cur.id)) {
-    visited.add(cur.id)
-    cur = blocks[cur.parent]
-  }
-  return cur?.id as DbId
-}
-
-/** 页面（根块）标题：journal 显示日期，其余取别名 / text / _repr.cap */
-function pageTitle(block: any): string {
-  if (block == null) return "未命名"
-  const repr = block.properties?.find((p: any) => p.name === "_repr")?.value
-  if (repr?.type === "journal") {
-    try {
-      const d = repr.date instanceof Date ? repr.date : new Date(repr.date)
-      if (!isNaN(d.getTime())) {
-        return new Intl.DateTimeFormat((orca.state as any).locale || undefined, {
-          dateStyle: "medium",
-        }).format(d)
-      }
-    } catch { /* ignore */ }
-  }
-  if (block.aliases?.length) {
-    const a = String(block.aliases[0])
-    return a.startsWith("/") ? a.split("/").at(-1) ?? a : a
-  }
-  if (block.text != null) {
-    const t = String(block.text).trim().replace(/(\s*#[^\s#]+)+$/u, "").trim()
-    if (t) return t
-  }
-  return repr?.cap ? String(repr.cap) : "未命名"
+/** 下拉卡渲染条目（内存实时或缓存统一转换后的瘦身形状） */
+interface PopEntry {
+  key: string // React key：ann id（全局唯一）
+  id: string // ann fragment id
+  v: string // 原文
+  note: string // 批注内容
+  ordinal: number // 块内序号
+  blockId: DbId
+  preview: string // 块文本预览
 }
 
 /** 全部文档的批注分组（按页面） */
 interface AnnPageGroup {
   rootId: DbId
   title: string
-  entries: AnnEntry[]
+  entries: PopEntry[]
+}
+
+/** 内存实时条目 → PopEntry */
+function toPopEntry(e: AnnEntry): PopEntry {
+  return {
+    key: e.ann.id,
+    id: e.ann.id,
+    v: e.ann.v,
+    note: e.ann.note ?? "",
+    ordinal: e.ordinal,
+    blockId: e.block.id as DbId,
+    preview: blockPreview(e),
+  }
 }
 
 /** 扫描 blocks 全表：含批注的块 → 回溯根块去重 → 每个根块收集批注；当前文档排最前，其余按标题排序 */
@@ -163,7 +147,11 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
   for (const rid of rootSet) {
     const entries = collectAnnotations(rid)
     if (entries.length === 0) continue
-    groups.push({ rootId: rid, title: pageTitle(blocks[rid]), entries })
+    groups.push({
+      rootId: rid,
+      title: pageTitle(blocks[rid]),
+      entries: entries.map(toPopEntry),
+    })
   }
   groups.sort((a, b) => {
     if (a.rootId === currentRootId) return -1
@@ -171,6 +159,38 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
     return a.title.localeCompare(b.title, "zh")
   })
   return groups
+}
+/** 合并内存表结果（实时、覆盖所有已加载文档）与缓存结果（曾打开过的文档），当前文档置顶 */
+function mergeAllGroups(
+  local: AnnPageGroup[],
+  cached: CachedPage[],
+  currentRootId: DbId | undefined,
+): AnnPageGroup[] {
+  const map = new Map<DbId, AnnPageGroup>()
+  for (const g of local) map.set(g.rootId, g)
+  for (const p of cached) {
+    if (map.has(p.rootId) || p.anns.length === 0) continue // 内存实时优先
+    map.set(p.rootId, {
+      rootId: p.rootId,
+      title: p.title,
+      entries: p.anns.map((a) => ({
+        key: a.id,
+        id: a.id,
+        v: a.v,
+        note: a.note,
+        ordinal: a.ordinal,
+        blockId: a.blockId,
+        preview: a.preview,
+      })),
+    })
+  }
+  const result = Array.from(map.values())
+  result.sort((a, b) => {
+    if (a.rootId === currentRootId) return -1
+    if (b.rootId === currentRootId) return 1
+    return a.title.localeCompare(b.title, "zh")
+  })
+  return result
 }
 
 /** 顶栏按钮 + Popup 下拉卡：点按钮展开汇总，点外部/Esc 关闭，不占分栏空间 */
@@ -220,11 +240,27 @@ export default function AnnPopupButton() {
     () => (rootBlockId == null ? [] : collectAnnotations(rootBlockId)),
     [rootBlockId, blocks],
   )
-  // 全部模式：按页面分组收集所有文档的批注
-  const groups: AnnPageGroup[] = useMemo(
-    () => (scope === "all" ? collectAllGroups(blocks, rootBlockId) : []),
-    [scope, blocks, rootBlockId],
-  )
+  const [allGroups, setAllGroups] = useState([] as AnnPageGroup[])
+  // 打开文档（rootBlockId 变化）→ 后台刷新该文档缓存（积累机制）
+  useEffect(() => {
+    if (rootBlockId != null) refreshDocCache(rootBlockId)
+  }, [rootBlockId])
+  useEffect(() => {
+    if (scope !== "all") return
+    let dead = false
+    // ① 内存块表即时统计 + 已积累的磁盘缓存合并（无后端全库扫描）
+    const update = () => {
+      if (dead) return
+      setAllGroups(
+        mergeAllGroups(collectAllGroups(blocks, rootBlockId), getCachedPages(), rootBlockId),
+      )
+    }
+    update()
+    // ② 首次读盘（磁盘缓存就绪）后再合并一次
+    void ensureMemCache().then(update)
+    return () => { dead = true }
+  }, [scope, blocks, rootBlockId])
+  const groups: AnnPageGroup[] = scope === "all" ? allGroups : []
   const totalCount =
     scope === "all"
       ? groups.reduce((n, g) => n + g.entries.length, 0)
@@ -239,31 +275,36 @@ export default function AnnPopupButton() {
 
   const remove = async (e: any, blockId: DbId, annId: string) => {
     e.stopPropagation()
+    // 全部文档模式下可能命中未加载文档的批注，其块不在内存表，直接删无效
+    if (!(orca.state as any).blocks?.[blockId]) {
+      orca.notify?.("warn", "该批注所在文档尚未加载，请先点击条目跳转打开后再删除")
+      return
+    }
     await orca.commands.invokeCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
   }
 
-  const renderItem = (entry: AnnEntry) => (
+  const renderItem = (entry: PopEntry) => (
     <div
-      key={entry.ann.id}
+      key={entry.key}
       className="pizhu-pop-item"
-      onClick={() => jump(entry.block.id)}
+      onClick={() => jump(entry.blockId)}
     >
       <div className="pizhu-pop-item-top">
         <span className="pizhu-pop-ordinal">{entry.ordinal}</span>
-        <span className="pizhu-pop-original">{entry.ann.v}</span>
+        <span className="pizhu-pop-original">{entry.v}</span>
         <span className="pizhu-pop-item-spacer" />
         <button
           className="pizhu-pop-del"
           title="删除批注"
-          onClick={(e: any) => remove(e, entry.block.id, entry.ann.id)}
+          onClick={(e: any) => remove(e, entry.blockId, entry.id)}
         >
           ✕
         </button>
       </div>
-      {entry.ann.note && (
-        <div className="pizhu-pop-note">{entry.ann.note}</div>
+      {entry.note && (
+        <div className="pizhu-pop-note">{entry.note}</div>
       )}
-      <div className="pizhu-pop-blockref">{blockPreview(entry)}</div>
+      <div className="pizhu-pop-blockref">{entry.preview}</div>
     </div>
   )
   return (
@@ -276,8 +317,8 @@ export default function AnnPopupButton() {
         >
           <span className="pizhu-headbar-btn">
             <i className="ti ti-notes" /> 批注
-            {entries.length > 0 && (
-              <span className="pizhu-pop-count">{entries.length}</span>
+            {totalCount > 0 && (
+              <span className="pizhu-pop-count">{totalCount}</span>
             )}
           </span>
         </Button>
@@ -320,7 +361,7 @@ export default function AnnPopupButton() {
                       {g.entries.map((entry) => renderItem(entry))}
                     </div>
                   ))
-                : entries.map((entry) => renderItem(entry))}
+                : entries.map(toPopEntry).map((entry) => renderItem(entry))}
             </div>
           )}
         </div>

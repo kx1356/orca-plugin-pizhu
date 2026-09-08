@@ -1,10 +1,11 @@
-// 批注插件入口：注册渲染器、命令、面板、工具栏按钮、快捷键
+// 批注插件入口：注册渲染器、命令、工具栏按钮、顶栏按钮、快捷键
 import { setupL10N, t } from "./libs/l10n"
 import zhCN from "./translations/zhCN"
 import AnnotationInline, { AnnotationCard, setPluginPrefix as setRendererPrefix } from "./renderer"
 import { registerCommands, unregisterCommands } from "./commands"
 import { findViewPanelByView } from "./ann"
 import AnnPopupButton, { setPluginPrefix as setPopupPrefix } from "./popup"
+import { setPluginPrefix as setCachePrefix } from "./annCache"
 import { PIZHU_CSS } from "./styles"
 import { enable as enableTabbar, disable as disableTabbar } from "./modules/tabbar"
 import { enable as enableTrashbin, disable as disableTrashbin } from "./modules/trashbin"
@@ -99,6 +100,7 @@ export async function load(_name: string) {
   // 同步插件名前缀到渲染器/面板（命令 ID 依赖）
   setRendererPrefix(pluginName)
   setPopupPrefix(pluginName)
+  setCachePrefix(pluginName)
 
   // 1. 行内渲染器：波浪线 + 角标
   orca.renderers.registerInline("pizhu.ann", false, AnnotationInline)
@@ -128,6 +130,13 @@ export async function load(_name: string) {
 
   // 5. 注入样式（批注 + 页签栏 + 回收站）
   orca.themes.injectCSS(`${PIZHU_CSS}\n${TABBAR_CSS}\n${TRASH_CSS}`, pluginName)
+
+  // 5a. 快捷键：Ctrl+Alt+A 快捷添加批注（editor command，编辑器会注入当前选区上下文）
+  try {
+    orca.shortcuts.assign("ctrl+alt+a", `${pluginName}.ann.add`)
+  } catch {
+    /* ignore */
+  }
 
   // 5b. 设置 schema 与可选功能开关
   try {
@@ -181,6 +190,11 @@ export async function unload() {
     /* ignore */
   }
   orca.themes.removeCSS(pluginName)
+  try {
+    orca.shortcuts.assign("", `${pluginName}.ann.add`)
+  } catch {
+    /* ignore */
+  }
   unregisterCommands(pluginName)
 
   // 停用可选功能模块（页签栏 / 回收站）
