@@ -34,10 +34,8 @@ body.orca-tabbar-on #main {
   align-items: center;
   gap: 5px;
   padding: 0 10px;
-  background-color: var(--orca-tabbar-bg);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  backdrop-filter: blur(22px) saturate(180%);
-  border-bottom: 1px solid var(--orca-tabbar-border);
+  background-color: transparent;
+  border-bottom: none;
   font-family: var(--orca-tabbar-font);
   overflow-x: auto;
   overflow-y: hidden;
@@ -219,7 +217,7 @@ body.orca-tabbar-vertical .orca-tabbar {
   overflow-x: hidden;
   overflow-y: auto;
   border-bottom: none;
-  border-right: 1px solid var(--orca-tabbar-border);
+  border-right: none;
 }
 body.orca-tabbar-vertical .orca-tab {
   width: 100%;
