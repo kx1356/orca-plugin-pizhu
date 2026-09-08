@@ -26,6 +26,16 @@ async function setBlockContent(
   )
 }
 
+/** 命令写回内容后，同步 orca.state.blocks 快照，让订阅方（批注下拉卡等）即时刷新 */
+function syncBlockContent(blockId: DbId, content: ContentFragment[]) {
+  try {
+    const blocks = (orca.state as any).blocks ?? {}
+    const blk = blocks[blockId]
+    if (blk == null) return
+    blocks[blockId] = { ...blk, content }
+  } catch { /* ignore */ }
+}
+
 /** 从 content 中按 id 找批注 fragment */
 function findAnn(content: ContentFragment[], annId: string): AnnFragment | null {
   const found = content.find((f) => isAnn(f) && f.id === annId)
@@ -200,6 +210,7 @@ export function registerCommands(pluginName: string) {
         }
         const newContent = replaceRange(content, start, end, ann)
         await setBlockContent(cursor, blockId, newContent)
+        syncBlockContent(blockId, newContent)
         refreshDocCacheByBlock(blockId)
 
         // 返回撤销数据：恢复旧 content
@@ -208,6 +219,7 @@ export function registerCommands(pluginName: string) {
       async (panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
         if (undoArgs) {
           await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
+          syncBlockContent(undoArgs.blockId, undoArgs.oldContent)
           refreshDocCacheByBlock(undoArgs.blockId)
         }
       },
@@ -227,6 +239,7 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = updateAnn(content, annId, { note, modified: Date.now() })
         await setBlockContent(null, blockId, newContent)
+        syncBlockContent(blockId, newContent)
         refreshDocCacheByBlock(blockId)
       },
       "编辑批注",
@@ -245,6 +258,7 @@ export function registerCommands(pluginName: string) {
         if (findAnn(content, annId) == null) return
         const newContent = removeAnn(content, annId)
         await setBlockContent(null, blockId, newContent)
+        syncBlockContent(blockId, newContent)
         refreshDocCacheByBlock(blockId)
       },
       "删除批注",

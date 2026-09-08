@@ -316,7 +316,19 @@ export default function AnnPopupButton() {
           title="批注"
         >
           <span className="pizhu-headbar-btn">
-            <i className="ti ti-notes" /> 批注
+            <svg
+              className="pizhu-headbar-icon"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2.5 11.4q1.25 -1.1 2.5 0t2.5 0t2.5 0t2.5 0" />
+              <circle cx="12.6" cy="4.4" r="1.7" />
+            </svg> 批注
             {totalCount > 0 && (
               <span className="pizhu-pop-count">{totalCount}</span>
             )}

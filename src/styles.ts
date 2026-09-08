@@ -207,6 +207,18 @@ export const PIZHU_CSS = `
   font-family: var(--pizhu-font);
   font-size: 13px;
 }
+/* 顶栏批注图标：波浪线 + 角标圆点（Fluent 2 线性，currentColor 跟随主题） */
+.pizhu-headbar-btn .pizhu-headbar-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  opacity: 0.92;
+  transition: opacity var(--pizhu-dur) var(--pizhu-ease), transform var(--pizhu-dur) var(--pizhu-ease);
+}
+.pizhu-headbar-btn:hover .pizhu-headbar-icon {
+  opacity: 1;
+  transform: scale(1.06);
+}
 
 /* ===== 批注输入浮层：Fluent 对话框 ===== */
 .pizhu-prompt-mask {
