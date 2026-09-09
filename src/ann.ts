@@ -148,6 +148,32 @@ export function annOrdinal(content: ContentFragment[], upToIndex: number): numbe
   return n
 }
 
+/**
+ * 遍历页面所有块（从 rootBlockId 出发），按文档顺序给每个批注分配全局序号（从 1 开始）。
+ * 返回 Map<annId, 全局序号>。
+ */
+export function buildGlobalOrdinalMap(rootBlockId: DbId): Map<string, number> {
+  const map = new Map<string, number>()
+  let counter = 0
+  const seen = new Set<DbId>()
+  const MAX_DEPTH = 1000
+  const visit = (id: DbId | undefined, depth: number) => {
+    if (id == null || depth > MAX_DEPTH || seen.has(id)) return
+    seen.add(id)
+    const block = orca.state.blocks[id]
+    if (block == null) return
+    for (const f of block.content ?? []) {
+      if (isAnn(f)) {
+        counter++
+        map.set(f.id, counter)
+      }
+    }
+    ;(block.children ?? []).forEach((cid) => visit(cid, depth + 1))
+  }
+  visit(rootBlockId, 0)
+  return map
+}
+
 /** 递归收集一棵块树内所有批注，附带所属块信息 */
 export interface AnnEntry {
   ann: AnnFragment

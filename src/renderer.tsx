@@ -1,6 +1,6 @@
 // 行内渲染器：波浪线 + 角标数字，悬停浮窗预览，点击弹出批注卡
 import type { Block, ContentFragment, DbId } from "./orca.d.ts"
-import { annOrdinal, isAnn } from "./ann"
+import { buildGlobalOrdinalMap, isAnn, rootOf } from "./ann"
 import { annCard, closeAnnCard, openAnnCard } from "./store"
 
 const { useState, useRef, useEffect } = window.React as any
@@ -31,8 +31,12 @@ export default function AnnotationInline({
   const block = blocks[blockId] as Block | undefined
   const ann = isAnn(data) ? data : null
 
-  // 块内批注序号：统计当前 fragment 之前（含自身）的批注数量
-  const ordinal = ann ? annOrdinal(block?.content ?? [], index) : 0
+  // 页面范围的全局批注序号（跨块递增）：遍历 root 下所有块建立 map
+  const ordinal = (() => {
+    if (!ann) return 0
+    const rootId = rootOf(blockId as any, blocks)
+    return buildGlobalOrdinalMap(rootId).get(ann.id) ?? 0
+  })()
 
   // 悬停预览浮窗状态
   const [previewPos, setPreviewPos] = useState(
