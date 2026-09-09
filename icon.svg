@@ -9,7 +9,8 @@
       <stop offset="1" stop-color="#E8F0F8"/>
     </linearGradient>
   </defs>
-  <path d="M256 0 C397 0 512 115 512 256 C512 397 397 512 256 512 C115 512 0 397 0 256 C0 115 115 0 256 0 Z" fill="url(#bg)"/>
+  <!-- iOS squircle: continuous corner bezier -->
+  <path d="M114,0 L398,0 C444,0 474,30 490,76 C500,105 512,147 512,190 L512,322 C512,365 500,407 490,436 C474,482 444,512 398,512 L114,512 C68,512 38,482 22,436 C12,407 0,365 0,322 L0,190 C0,147 12,105 22,76 C38,30 68,0 114,0 Z" fill="url(#bg)"/>
   <rect x="140" y="90" width="200" height="250" rx="16" fill="url(#doc)"/>
   <rect x="168" y="125" width="144" height="8" rx="4" fill="#0F6CBD" opacity="0.25"/>
   <rect x="168" y="150" width="144" height="8" rx="4" fill="#0F6CBD" opacity="0.25"/>
