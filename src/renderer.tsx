@@ -13,6 +13,27 @@ export function setPluginPrefix(p: string) {
   pluginPrefix = p
 }
 
+// 页面全局序号缓存：以 blocks 快照对象为键，同一快照下每个页面只构建一次序号表，
+// 避免页面上每个批注行内组件都各自做一次全页遍历（O(批注数 × 页块数)）。
+const ordinalCache = new WeakMap<object, Map<string, Map<string, number>>>()
+function globalOrdinalMapFor(
+  blocks: Record<string | DbId, Block | undefined>,
+  rootId: DbId | string,
+): Map<string, number> {
+  const key = String(rootId)
+  let byRoot = ordinalCache.get(blocks)
+  if (byRoot == null) {
+    byRoot = new Map()
+    ordinalCache.set(blocks, byRoot)
+  }
+  let map = byRoot.get(key)
+  if (map == null) {
+    map = buildGlobalOrdinalMap(rootId as DbId, blocks)
+    byRoot.set(key, map)
+  }
+  return map
+}
+
 /**
  * 行内渲染器 props：blockId 所属块、data 当前 fragment、index 在块 content 中的位置。
  * 注意：data 可能不是最新快照，批注卡编辑后由 useSnapshot 订阅刷新。
@@ -35,7 +56,7 @@ export default function AnnotationInline({
   const ordinal = (() => {
     if (!ann) return 0
     const rootId = rootOf(blockId as any, blocks)
-    return buildGlobalOrdinalMap(rootId).get(ann.id) ?? 0
+    return globalOrdinalMapFor(blocks, rootId).get(ann.id) ?? 0
   })()
 
   // 悬停预览浮窗状态
@@ -149,18 +170,20 @@ export function AnnotationCard() {
   const [draft, setDraft] = useState("")
   const taRef = useRef(null) as any
 
-  // 打开/切换批注时重置草稿，避免残留上一次编辑内容（卡片常驻挂载，state 不随 annId 重置）
+  const block = card.blockId == null ? undefined : (blocks[card.blockId] as Block | undefined)
+  const ann = (block?.content ?? []).find((f) => isAnn(f) && f.id === card.annId)
+
+  // 打开/切换批注时用该批注内容初始化草稿（受控输入，允许用户清空后重新输入）；
+  // 卡片常驻挂载，state 不随 annId 重置，因此仅依赖 annId/visible，编辑中不被 blocks 变化覆盖。
   useEffect(() => {
-    setDraft("")
+    setDraft(ann?.note ?? "")
   }, [card.annId, card.visible])
 
   // 批注已不存在（可能被删除）时自动关闭。
   // 必须在 effect 中改全局状态，渲染期间 setState 是 React 反模式。
   useEffect(() => {
     if (!card.visible || card.blockId == null) return
-    const blk = blocks[card.blockId] as Block | undefined
-    const exists = (blk?.content ?? []).some((f) => isAnn(f) && f.id === card.annId)
-    if (!exists) closeAnnCard()
+    if (!ann) closeAnnCard()
   }, [card.visible, card.blockId, card.annId, blocks])
 
   // 编辑框根据文字内容自动伸缩高度（打开与输入时生效）
@@ -199,13 +222,8 @@ export function AnnotationCard() {
     return () => document.removeEventListener("keydown", onKey)
   }, [card.visible])
 
-  if (!card.visible || card.blockId == null) return null
-
-  const block = blocks[card.blockId] as Block | undefined
-  const ann = (block?.content ?? []).find((f) => isAnn(f) && f.id === card.annId)
-
   // 批注已被删除：渲染空（关闭由上方 useEffect 处理）
-  if (!ann) return null
+  if (!card.visible || card.blockId == null || !ann) return null
 
   const save = async () => {
     if (draft.trim() === "") {
@@ -256,7 +274,7 @@ export function AnnotationCard() {
           className="pizhu-card-input"
           rows={1}
           placeholder="写下批注…"
-          value={draft || ann.note}
+          value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onInput={autoResize}
           autoFocus

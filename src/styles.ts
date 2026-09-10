@@ -33,7 +33,7 @@ export const PIZHU_CSS = `
 /* ===== 行内批注标记：波浪线 + Fluent 圆形角标 ===== */
 .pizhu-ann {
   text-decoration: underline wavy;
-  text-decoration-color: rgba(255, 170, 60, 0.85);
+  text-decoration-color: var(--orca-color-accent, #0F6CBD);
   text-underline-offset: 3px;
   text-decoration-thickness: 1.5px;
   cursor: pointer;
@@ -436,9 +436,9 @@ export const PIZHU_CSS = `
 }
 .pizhu-pop-original {
   text-decoration: underline wavy;
-  text-decoration-color: rgba(255, 170, 60, 0.85);
+  text-decoration-color: var(--orca-color-accent, #0F6CBD);
   text-underline-offset: 3px;
-  color: var(--pizhu-text-1);
+  color: var(--orca-color-accent, #0F6CBD);
 }
 .pizhu-pop-note {
   margin-top: 4px;

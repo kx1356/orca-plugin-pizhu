@@ -1,5 +1,4 @@
 // ============================================================
-// @ts-nocheck
 // Orca Tab Bar — 缓存编辑器页签
 // 提炼自 orca-neo 主题 v2.0.0 的「缓存编辑器页签」功能
 // 点击切换 / 中键关闭 / 拖拽排序 / 拖到面板边缘分栏 / 垂直模式
@@ -7,28 +6,55 @@
 
 let pluginName = "";
 
+/** 面板树节点（叶子面板） */
+interface PanelLike {
+  id: string;
+  view?: string;
+  viewArgs?: any;
+  children?: PanelLike[];
+}
+
+/** 单个缓存页签 */
+interface TabEntry {
+  key: string;
+  view: string;
+  viewArgs: any;
+  used: number;
+  title?: string;
+}
+
+/** 固定页签 */
+interface PinnedTab {
+  view: string;
+  viewArgs: any;
+  title: string;
+  key: string;
+}
+
+type DropSide = "left" | "right" | "top" | "bottom" | "center";
+
 // ---- DOM 元素 ----
-let tabbarEl = null;        // 页签条容器
-let resizeEl = null;        // 垂直模式宽度调节条
-let dropHintEl = null;      // 拖拽分栏提示块
+let tabbarEl: HTMLElement | null = null;        // 页签条容器
+let resizeEl: HTMLElement | null = null;        // 垂直模式宽度调节条
+let dropHintEl: HTMLElement | null = null;      // 拖拽分栏提示块
 
 // ---- 观察器 ----
-let refreshObserver = null;   // 观察 #main 变化触发重绘
-let posObserver = null;       // 观察 body class 变化触发定位
-let posResizeObserver = null; // 观察 #main / #sidebar 尺寸变化
-let stateUnsub = null;        // 订阅 orca.state（页面切换等）
-let settingsUnsub = null;     // 订阅插件设置变化
+let refreshObserver: MutationObserver | null = null;   // 观察 #main 变化触发重绘
+let posObserver: MutationObserver | null = null;       // 观察 body class 变化触发定位
+let posResizeObserver: ResizeObserver | null = null;   // 观察 #main / #sidebar 尺寸变化
+let stateUnsub: (() => void) | null = null;            // 订阅 orca.state（页面切换等）
+let settingsUnsub: (() => void) | null = null;         // 订阅插件设置变化
 
 // ---- 运行状态 ----
 let renderScheduled = false;
 let dragging = false;
 let lruCounter = 0;
 let lastRenderKey = "";
-let dragPayload = null;       // 拖拽中的 { panelId, key }
-let headbarWaiter = null;     // 等待 #headbar 出现的观察器
+let dragPayload: { panelId: string; key: string } | null = null; // 拖拽中的 { panelId, key }
+let headbarWaiter: MutationObserver | null = null;     // 等待 #headbar 出现的观察器
 
-// 每面板的页签缓存：Map<panelId, { key, view, viewArgs, used }[]>
-const tabCache = new Map();
+// 每面板的页签缓存：Map<panelId, TabEntry[]>
+const tabCache = new Map<string, TabEntry[]>();
 
 const TABBAR_WIDTH_KEY = "orca-tabbar-width";
 const PINNED_KEY = "orca-tabbar-pinned";
@@ -36,8 +62,8 @@ const MIN_TABBAR_W = 100;
 const MAX_TABBAR_W = 350;
 const DEFAULT_TABBAR_W = 150;
 
-// 固定页签（置顶、持久化、不参与 LRU 淘汰）：[{ view, viewArgs, title, key }]
-let pinnedTabs = [];
+// 固定页签（置顶、持久化、不参与 LRU 淘汰）
+let pinnedTabs: PinnedTab[] = [];
 
 // ============================================================
 // 设置
@@ -81,7 +107,7 @@ function applyAllSettings() {
 // ============================================================
 
 // 把面板树拍平成叶子面板列表
-function flattenPanels(node, out = []) {
+function flattenPanels(node: any, out: PanelLike[] = []): PanelLike[] {
   if (!node) return out;
   const list = Array.isArray(node) ? node : [node];
   for (const p of list) {
@@ -92,14 +118,14 @@ function flattenPanels(node, out = []) {
   return out;
 }
 
-function findPanel(id) {
-  const panels = [];
+function findPanel(id: string): PanelLike | null {
+  const panels: PanelLike[] = [];
   flattenPanels(orca.state?.panels, panels);
   return panels.find(p => p.id === id) ?? null;
 }
 
 // view + viewArgs 序列化为缓存 key
-function viewKey(view, viewArgs) {
+function viewKey(view: string, viewArgs: any): string {
   let s = "";
   try {
     const args = viewArgs ?? {};
@@ -110,9 +136,9 @@ function viewKey(view, viewArgs) {
 
 // 收集所有面板当前 view 进缓存（LRU 淘汰）
 function refreshCache() {
-  const panels = [];
+  const panels: PanelLike[] = [];
   flattenPanels(orca.state?.panels, panels);
-  const alive = new Set();
+  const alive = new Set<string>();
   for (const p of panels) if (p.id) alive.add(p.id);
   for (const id of Array.from(tabCache.keys())) if (!alive.has(id)) tabCache.delete(id);
 
@@ -124,7 +150,7 @@ function refreshCache() {
     const key = viewKey(view, p.viewArgs);
     let list = tabCache.get(id);
     if (!list) { list = []; tabCache.set(id, list); }
-    let entry = list.find(e => e.key === key);
+    let entry = list.find((e: TabEntry) => e.key === key);
     if (!entry) { entry = { key, view, viewArgs: { ...(p.viewArgs ?? {}) }, used: 0 }; list.push(entry); }
     entry.used = ++lruCounter;
     // 超出容量时淘汰最久未用且非当前项
@@ -141,15 +167,15 @@ function refreshCache() {
 }
 
 // ---- 块信息（用于页签标题与图标） ----
-function reprOf(block) {
-  return block?.properties?.find(p => p.name === "_repr")?.value;
+function reprOf(block: any): any {
+  return block?.properties?.find((p: any) => p.name === "_repr")?.value;
 }
 
-function blockOf(id) {
+function blockOf(id: any): any {
   return id == null ? null : orca.state?.blocks?.[id] ?? null;
 }
 
-function formatDate(date) {
+function formatDate(date: any): string {
   try {
     const d = date instanceof Date ? date : new Date(date);
     if (isNaN(d.getTime())) return "";
@@ -157,7 +183,7 @@ function formatDate(date) {
   } catch { return ""; }
 }
 
-function blockTitle(block, depth = 0) {
+function blockTitle(block: any, depth = 0): string {
   if (!block || depth > 3) return "";
   const repr = reprOf(block);
   if (repr == null) return "";
@@ -183,7 +209,7 @@ const VIEW_TITLES = {
 };
 
 // 页签标题
-function tabTitle(entry) {
+function tabTitle(entry: any): string {
   let t = "";
   try {
     if (entry.view === "journal") {
@@ -195,7 +221,7 @@ function tabTitle(entry) {
     if (!t) t = String(entry.viewArgs?.title ?? "");
   } catch { /* ignore */ }
   if (t) { entry.title = t; return t; }
-  return entry.title || VIEW_TITLES[entry.view] || entry.view || "未命名";
+  return entry.title || (VIEW_TITLES as Record<string, string>)[entry.view] || entry.view || "未命名";
 }
 
 const TYPE_ICONS = {
@@ -223,7 +249,7 @@ const TYPE_ICONS = {
 };
 
 // 页签图标
-function tabIcon(entry) {
+function tabIcon(entry: any): string {
   if (entry.view === "journal") return "ti ti-calendar";
   const block = blockOf(entry.viewArgs?.blockId);
   const repr = reprOf(block);
@@ -232,10 +258,10 @@ function tabIcon(entry) {
     const level = Number(repr.level);
     return level >= 1 && level <= 6 ? `ti ti-h-${level}` : "ti ti-heading";
   }
-  const icon = TYPE_ICONS[repr.type];
+  const icon = (TYPE_ICONS as Record<string, string>)[repr.type];
   if (icon) return icon;
   if (block?.aliases?.length) {
-    return block.properties?.find(p => p.name === "_hide")?.value ? "ti ti-file" : "ti ti-hash";
+    return block.properties?.find((p: any) => p.name === "_hide")?.value ? "ti ti-file" : "ti ti-hash";
   }
   return "ti ti-cube";
 }
@@ -244,17 +270,17 @@ function tabIcon(entry) {
 // 切换 / 关闭
 // ============================================================
 
-function switchToTab(panelId, entry) {
+function switchToTab(panelId: string, entry: TabEntry) {
   try {
     orca.nav.goTo(entry.view, entry.viewArgs, panelId);
     orca.nav.switchFocusTo(panelId);
   } catch { /* ignore */ }
 }
 
-function closeTab(panelId, key) {
+function closeTab(panelId: string, key: string) {
   const list = tabCache.get(panelId);
   if (!list) return;
-  const idx = list.findIndex(e => e.key === key);
+  const idx = list.findIndex((e: TabEntry) => e.key === key);
   if (idx < 0) return;
   const panel = findPanel(panelId);
   const isCurrent = panel != null && viewKey(panel.view ?? "", panel.viewArgs) === key;
@@ -275,7 +301,7 @@ function closeTab(panelId, key) {
 // 拖拽分栏
 // ============================================================
 
-function dropHint() {
+function dropHint(): HTMLElement {
   if (!dropHintEl) {
     dropHintEl = document.createElement("div");
     dropHintEl.className = "orca-tab-drophint";
@@ -289,10 +315,10 @@ function hideDropHint() {
 }
 
 // 计算落点方向：边缘四分之一判定左右上下，否则中心
-function dropSide(rect, x, y) {
+function dropSide(rect: DOMRect, x: number, y: number): DropSide {
   const leftRatio = (x - rect.left) / Math.max(1, rect.width);
   const topRatio = (y - rect.top) / Math.max(1, rect.height);
-  const sides = [
+  const sides: [DropSide, number][] = [
     ["left", leftRatio],
     ["right", 1 - leftRatio],
     ["top", topRatio],
@@ -302,7 +328,7 @@ function dropSide(rect, x, y) {
   return sides[0][1] <= 0.25 ? sides[0][0] : "center";
 }
 
-function showDropHint(rect, side) {
+function showDropHint(rect: DOMRect, side: DropSide) {
   const hint = dropHint();
   hint.classList.add("orca-tab-drophint-on");
   let { left, top, width, height } = rect;
@@ -316,7 +342,7 @@ function showDropHint(rect, side) {
   hint.style.height = `${height}px`;
 }
 
-function onDragOver(e) {
+function onDragOver(e: any) {
   if (!dragPayload) return;
   const target = e.target;
   if (tabbarEl && target && tabbarEl.contains(target)) {
@@ -331,7 +357,7 @@ function onDragOver(e) {
   showDropHint(rect, dropSide(rect, e.clientX, e.clientY));
 }
 
-function onDrop(e) {
+function onDrop(e: any) {
   if (!dragPayload) return;
   const payload = dragPayload;
   const target = e.target;
@@ -366,13 +392,13 @@ function onDrop(e) {
 // 固定页签（持久化）
 // ============================================================
 
-function loadPinnedTabs() {
+function loadPinnedTabs(): PinnedTab[] {
   try {
     const raw = localStorage.getItem(PINNED_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
     return Array.isArray(arr)
-      ? arr.filter(t => t && t.view).map(t => ({
+      ? arr.filter((t: any) => t && t.view).map((t: any) => ({
           view: t.view,
           viewArgs: t.viewArgs ?? {},
           title: t.title ?? "",
@@ -390,8 +416,8 @@ function savePinnedTabs() {
   } catch { /* ignore */ }
 }
 
-function pinTab(entry) {
-  if (pinnedTabs.some(t => t.key === entry.key)) return;
+function pinTab(entry: TabEntry) {
+  if (pinnedTabs.some((t: PinnedTab) => t.key === entry.key)) return;
   pinnedTabs.push({
     view: entry.view,
     viewArgs: { ...(entry.viewArgs ?? {}) },
@@ -402,8 +428,8 @@ function pinTab(entry) {
   scheduleRender();
 }
 
-function unpinTab(key) {
-  const i = pinnedTabs.findIndex(t => t.key === key);
+function unpinTab(key: string) {
+  const i = pinnedTabs.findIndex((t: PinnedTab) => t.key === key);
   if (i < 0) return;
   pinnedTabs.splice(i, 1);
   savePinnedTabs();
@@ -411,8 +437,8 @@ function unpinTab(key) {
 }
 
 // 点击固定页签：优先在活跃面板打开，否则用第一个可用面板
-function openPinned(tab) {
-  const panels = [];
+function openPinned(tab: PinnedTab) {
+  const panels: PanelLike[] = [];
   flattenPanels(orca.state?.panels, panels);
   const active = orca.state?.activePanel;
   const target = active && panels.some(p => p.id === active)
@@ -438,11 +464,11 @@ function scheduleRender() {
   });
 }
 
-function collectTabData() {
-  const panels = [];
+function collectTabData(): any[] {
+  const panels: PanelLike[] = [];
   flattenPanels(orca.state?.panels, panels);
   const activePanel = orca.state?.activePanel;
-  const data = [];
+  const data: any[] = [];
   for (const p of panels) {
     const id = p.id;
     if (!id || id.startsWith("_")) continue;
@@ -462,10 +488,10 @@ function render() {
   if (!tabbarEl || dragging) return;
   const data = collectTabData();
   // 面板缓存中跳过已固定的页签，避免同一页面出现两个页签
-  const pinnedKeys = new Set(pinnedTabs.map(t => t.key));
-  const panels = [];
+  const pinnedKeys = new Set(pinnedTabs.map((t: PinnedTab) => t.key));
+  const panels: any[] = [];
   for (const d of data) {
-    const list = d.list.filter(e => !pinnedKeys.has(e.key));
+    const list = d.list.filter((e: TabEntry) => !pinnedKeys.has(e.key));
     if (list.length) panels.push({ ...d, list });
   }
   if (!pinnedTabs.length && !panels.length) {
@@ -479,7 +505,7 @@ function render() {
     pinnedTabs.map(t => `${t.key}~${t.title}`).join(",") + "||" +
     panels.map(d =>
       `${d.panelId}${d.focused ? "*" : ""}@${d.currentKey}#` +
-      d.list.map(e => `${e.key}~${tabTitle(e)}`).join(",")
+      d.list.map((e: TabEntry) => `${e.key}~${tabTitle(e)}`).join(",")
     ).join("||");
   if (key === lastRenderKey) return;
   lastRenderKey = key;
@@ -497,7 +523,7 @@ function render() {
   }
 }
 
-function renderTab(data) {
+function renderTab(data: any) {
   if (!tabbarEl) return;
   const panelId = data.panelId;
   const currentKey = data.currentKey;
@@ -575,8 +601,9 @@ function renderTab(data) {
       tab.classList.remove("orca-tab-insert");
       const list = tabCache.get(panelId);
       if (!list) return;
-      const from = list.findIndex(r => r.key === dragPayload.key);
-      const to = list.findIndex(r => r.key === entry.key);
+      const payload = dragPayload;
+      const from = list.findIndex((r: TabEntry) => r.key === payload.key);
+      const to = list.findIndex((r: TabEntry) => r.key === entry.key);
       if (from < 0 || to < 0 || from === to) return;
       const [moved] = list.splice(from, 1);
       list.splice(to, 0, moved);
@@ -590,7 +617,7 @@ function renderTab(data) {
 }
 
 // 固定页签渲染：置顶组内，带取消固定按钮，中键也可取消
-function renderPinnedTab(tab) {
+function renderPinnedTab(tab: PinnedTab) {
   if (!tabbarEl) return;
   const title = tab.title || tab.view || "未命名";
   const activePanel = orca.state?.activePanel;
@@ -642,7 +669,7 @@ function updateTabbarPos() {
   style.setProperty("--orca-tabbar-bottom", `${Math.max(0, Math.round(window.innerHeight - rect.bottom))}px`);
 }
 
-function setTabbarWidth(px) {
+function setTabbarWidth(px: number) {
   const w = Math.max(MIN_TABBAR_W, Math.min(MAX_TABBAR_W, Math.round(px)));
   document.body.style.setProperty("--orca-tabbar-w", `${w}px`);
   try { localStorage.setItem(TABBAR_WIDTH_KEY, String(w)); } catch { /* ignore */ }
@@ -658,12 +685,12 @@ function restoreTabbarWidth() {
   } catch { /* ignore */ }
 }
 
-function startResize(e) {
+function startResize(e: MouseEvent) {
   if (e.button !== 0 || !tabbarEl) return;
   e.preventDefault();
   const startX = e.clientX;
   const startW = tabbarEl.getBoundingClientRect().width || DEFAULT_TABBAR_W;
-  const onMove = ev => setTabbarWidth(startW + ev.clientX - startX);
+  const onMove = (ev: MouseEvent) => setTabbarWidth(startW + ev.clientX - startX);
   const onUp = () => {
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
@@ -787,7 +814,7 @@ function disableTabbar() {
 // 设置 schema 与生命周期
 // ============================================================
 
-export async function enable(name) {
+export async function enable(name: string) {
   pluginName = name;
   try {
     document.body.classList.add("orca-tabbar-on");
@@ -799,7 +826,7 @@ export async function enable(name) {
       if (pluginState) settingsUnsub = window.Valtio.subscribe(pluginState, applyAllSettings);
     } catch { settingsUnsub = null; }
     console.log(`${name} loaded.`);
-  } catch (e) {
+  } catch (e: any) {
     console.error(`[TABBAR] ${name} 加载失败：`, e);
     try { orca.notify?.("error", `页签插件加载失败：${e?.message ?? e}`); } catch { /* ignore */ }
   }

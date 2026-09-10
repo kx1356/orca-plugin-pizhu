@@ -152,7 +152,10 @@ export function annOrdinal(content: ContentFragment[], upToIndex: number): numbe
  * 遍历页面所有块（从 rootBlockId 出发），按文档顺序给每个批注分配全局序号（从 1 开始）。
  * 返回 Map<annId, 全局序号>。
  */
-export function buildGlobalOrdinalMap(rootBlockId: DbId): Map<string, number> {
+export function buildGlobalOrdinalMap(
+  rootBlockId: DbId,
+  blocks: Record<string | DbId, Block | undefined> = orca.state.blocks,
+): Map<string, number> {
   const map = new Map<string, number>()
   let counter = 0
   const seen = new Set<DbId>()
@@ -160,7 +163,7 @@ export function buildGlobalOrdinalMap(rootBlockId: DbId): Map<string, number> {
   const visit = (id: DbId | undefined, depth: number) => {
     if (id == null || depth > MAX_DEPTH || seen.has(id)) return
     seen.add(id)
-    const block = orca.state.blocks[id]
+    const block = blocks[id]
     if (block == null) return
     for (const f of block.content ?? []) {
       if (isAnn(f)) {

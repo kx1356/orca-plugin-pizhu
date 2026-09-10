@@ -1,5 +1,4 @@
 // ============================================================
-// @ts-nocheck
 // Orca Trash Bin — 回收站
 // 提炼自 orca-neo 主题 v2.0.0
 // 拦截删除操作，自动保存页面快照，可随时恢复或彻底删除
@@ -7,15 +6,18 @@
 
 let pluginName = "";
 
+/** invokeBackend 的签名（透传/拦截共用） */
+type BackendFn = (name: string, ...args: any[]) => any;
+
 // ---- 后端 hook（链式安全：卸载时只摘自己的 wrapper，不覆盖其他插件后装的 hook）----
-let hookPrev = null;     // 安装 hook 前的 invokeBackend 原引用（即链上前一层）
-let hookSelf = null;     // 本模块的 wrapper，用于识别自己是否在链顶
+let hookPrev: BackendFn | null = null;     // 安装 hook 前的 invokeBackend 原引用（即链上前一层）
+let hookSelf: BackendFn | null = null;     // 本模块的 wrapper，用于识别自己是否在链顶
 let hookActive = false;  // wrapper 是否执行拦截（即使被外层插件包裹，也能立即停用）
-let cleanupTimer = null;      // 过期清理定时器
+let cleanupTimer: ReturnType<typeof setInterval> | null = null; // 过期清理定时器
 
 // ---- React 全局 ----
-let React = null;
-let ReactDOM = null;
+let React: any = null;
+let ReactDOM: any = null;
 
 // ============================================================
 // 设置
@@ -38,9 +40,9 @@ function retentionDays() {
 // 后端访问与拦截
 // ============================================================
 
-function backend() {
+function backend(): BackendFn {
   // 绕过自身拦截直接调用后端：优先用 hook 前的原函数，未安装 hook 时用当前函数
-  return (name, ...args) => (hookPrev || orca.invokeBackend).call(orca, name, ...args);
+  return (name: string, ...args: any[]) => (hookPrev || orca.invokeBackend).call(orca, name, ...args);
 }
 
 // 拦截 invokeBackend 的 delete-blocks：删除前先把顶层块快照进回收站
@@ -50,14 +52,14 @@ function installHook() {
   if (orca.invokeBackend === hookSelf) return;
   hookPrev = orca.invokeBackend;
   if (!hookSelf) {
-    hookSelf = async (name, ...args) => {
+    hookSelf = async (name: string, ...args: any[]) => {
       // 已停用或非删除命令：原样透传
       if (!hookActive || name !== "delete-blocks") {
-        return hookPrev.call(orca, name, ...args);
+        return (hookPrev as BackendFn).call(orca, name, ...args);
       }
       try {
         return await interceptDelete(args);
-      } catch (e) {
+      } catch (e: any) {
         console.error("[TRASH] 拦截异常，已取消删除以保数据：", e);
         try {
           orca.notify?.("error", `回收站：删除已被拦截（${e?.message ?? e}），页面未删除以保数据。可重试或检查存储。`, { title: "回收站" });
@@ -74,23 +76,23 @@ function uninstallHook() {
   hookActive = false;
   // 仅当自己是链顶时才恢复原引用，避免覆盖其他插件后装的 hook
   if (hookSelf && orca.invokeBackend === hookSelf) {
-    orca.invokeBackend = hookPrev;
+    orca.invokeBackend = hookPrev as BackendFn;
     hookPrev = null;
     hookSelf = null;
   }
   // 非链顶：wrapper 保留但已透传，待外层插件卸载后链条自然断开
 }
 
-async function interceptDelete(args) {
+async function interceptDelete(args: any[]) {
   const b = backend();
   if (!trashEnabled()) return b("delete-blocks", ...args);
   const ids = Array.isArray(args[0]) ? args[0] : [];
   const repo = orca.state.repo;
   // 阶段一：只读取回所有顶层页面块快照，全部成功才继续（避免部分快照写入后删除被中止的“幽灵快照”）
-  const pages = [];
+  const pages: any[] = [];
   try {
     for (const id of ids) {
-      let block = null;
+      let block: any = null;
       try { block = await b("get-block", id); } catch { block = null; }
       // 只快照顶层块（无父块 = 页面）；非顶层块直接随删除，不做快照
       if (block && (block.parent == null || block.parent === undefined || block.parent === "")) {
@@ -98,13 +100,13 @@ async function interceptDelete(args) {
         pages.push({ pageId: id, block, tree });
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("[TRASH] 快照阶段失败，已取消删除：", e);
     try { orca.notify?.("error", `回收站：读取快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
     return [];
   }
   // 阶段二：全部快照就绪后才写入文件与索引；任一写失败则回滚已写文件并取消删除
-  const writes = [];
+  const writes: any[] = [];
   try {
     for (const p of pages) {
       const record = {
@@ -128,14 +130,14 @@ async function interceptDelete(args) {
     const list = await readIndex(b, repo);
     const merged = [...list];
     for (const w of writes) {
-      const i = merged.findIndex(e => e.pageId === w.pageId);
+      const i = merged.findIndex((e: any) => e.pageId === w.pageId);
       if (i >= 0) merged[i] = w; else merged.push(w);
     }
     await writeIndex(b, repo, merged);
     for (const w of writes) {
       try { orca.notify?.("success", `已移入回收站：${w.title}`, { title: "回收站" }); } catch { /* ignore */ }
     }
-  } catch (e) {
+  } catch (e: any) {
     for (const w of writes) { try { await b("remove-plugin-file", pluginName, w.fileName); } catch { /* ignore */ } }
     console.error("[TRASH] 快照写入失败，已回滚并取消删除：", e);
     try { orca.notify?.("error", `回收站：保存快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
@@ -149,13 +151,13 @@ async function interceptDelete(args) {
 // ============================================================
 
 // 递归快照块树
-async function snapshotTree(b, blockId, seen = new Set(), depth = 0) {
+async function snapshotTree(b: BackendFn, blockId: any, seen = new Set<any>(), depth = 0): Promise<any> {
   if (seen.has(blockId) || depth > 500) return null;
   seen.add(blockId);
-  let block = null;
+  let block: any = null;
   try { block = await b("get-block", blockId); } catch { block = null; }
   if (!block) return null;
-  const kids = [];
+  const kids: any[] = [];
   for (const childId of Array.isArray(block.children) ? block.children : []) {
     if (typeof childId === "number") {
       const kid = await snapshotTree(b, childId, seen, depth + 1);
@@ -173,11 +175,11 @@ async function snapshotTree(b, blockId, seen = new Set(), depth = 0) {
 }
 
 
-function indexKey(repo) {
+function indexKey(repo: string) {
   return `trash-index:${repo}`;
 }
 
-async function readIndex(b, repo) {
+async function readIndex(b: BackendFn, repo: string): Promise<any[]> {
   try {
     const v = await b("get-plugin-data", pluginName, indexKey(repo));
     if (typeof v === "string") {
@@ -190,7 +192,7 @@ async function readIndex(b, repo) {
   } catch { return []; }
 }
 
-async function writeIndex(b, repo, list) {
+async function writeIndex(b: BackendFn, repo: string, list: any[]): Promise<void> {
   await b("set-plugin-data", pluginName, indexKey(repo), JSON.stringify(list));
 }
 
@@ -204,7 +206,7 @@ async function trashList() {
   const list = await readIndex(b, repo);
   const ttl = retentionDays() * 864e5;
   const now = Date.now();
-  return list.map(e => ({
+  return list.map((e: any) => ({
     ...e,
     remainingMs: Math.max(0, e.deletedAt + ttl - now)
   }));
@@ -215,15 +217,15 @@ async function trashCount() {
 }
 
 // 恢复：读快照 → 递归重建块 → 删除快照文件 → 更新索引
-async function restorePage(pageId) {
+async function restorePage(pageId: any) {
   const b = backend();
   const repo = orca.state.repo;
   const file = `trash/${repo}/${pageId}.json`;
-  let raw, record;
+  let raw: any, record: any;
   try {
     raw = await b("get-plugin-file", pluginName, file);
     record = JSON.parse(String(raw ?? ""));
-  } catch (e) {
+  } catch (e: any) {
     console.error("[TRASH] 读取快照失败：", e);
     try { orca.notify?.("error", `恢复失败：快照文件不可读（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
     return;
@@ -235,21 +237,21 @@ async function restorePage(pageId) {
   await rebuildTree(b, record.tree, record.originalParent ?? null, record.originalLeft ?? null);
   try { await b("remove-plugin-file", pluginName, file); } catch { /* ignore */ }
   const list = await readIndex(b, repo);
-  await writeIndex(b, repo, list.filter(e => e.pageId !== pageId));
+  await writeIndex(b, repo, list.filter((e: any) => e.pageId !== pageId));
   try {
     orca.notify?.("success", `已恢复：${record?.tree ? titleOf(record.tree) : pageId}`, { title: "回收站" });
   } catch { /* ignore */ }
 }
 
 // 递归重建块树，返回创建出的块 id
-async function rebuildTree(b, node, parentId, leftId) {
+async function rebuildTree(b: BackendFn, node: any, parentId: any, leftId: any): Promise<any> {
   if (node == null) return null;
   const { repr, content } = splitRepr(node);
   const text = typeof node?.text === "string" ? node.text : "";
-  let createdId;
+  let createdId: any;
   try {
     createdId = await b("create-block", parentId, leftId, null, null, repr, content, text);
-  } catch (e) {
+  } catch (e: any) {
     if (parentId == null) createdId = await b("create-block", undefined, leftId, null, null, repr, content, text);
     else throw e;
   }
@@ -260,7 +262,7 @@ async function rebuildTree(b, node, parentId, leftId) {
       || (typeof node?.text === "string" ? node.text.trim() : "");
     if (alias && !String(alias).startsWith("_")) {
       try { await b("create-alias", alias, id, true, null); }
-      catch (t) { console.warn("[TRASH] 恢复页面别名失败：", t); }
+      catch (t: any) { console.warn("[TRASH] 恢复页面别名失败：", t); }
     }
   }
   let prev = null;
@@ -271,7 +273,7 @@ async function rebuildTree(b, node, parentId, leftId) {
   return id;
 }
 
-function extractId(result) {
+function extractId(result: any) {
   if (result == null) return null;
   if (Array.isArray(result)) {
     const first = result[0];
@@ -281,9 +283,9 @@ function extractId(result) {
 }
 
 // 从快照节点拆出 repr 与富文本内容
-function splitRepr(node) {
+function splitRepr(node: any) {
   const reprProp = Array.isArray(node?.properties)
-    ? node.properties.find(p => p && p.name === "_repr")
+    ? node.properties.find((p: any) => p && p.name === "_repr")
     : null;
   const repr = reprProp && reprProp.value ? reprProp.value : { type: "text" };
   const text = (typeof node?.text === "string" ? node.text : "").replace(/\n+$/, "");
@@ -295,13 +297,13 @@ function splitRepr(node) {
 }
 
 // 彻底删除单个
-async function purgePage(pageId) {
+async function purgePage(pageId: any) {
   const b = backend();
   const repo = orca.state.repo;
   const file = `trash/${repo}/${pageId}.json`;
   try { await b("remove-plugin-file", pluginName, file); } catch { /* ignore */ }
   const list = await readIndex(b, repo);
-  await writeIndex(b, repo, list.filter(e => e.pageId !== pageId));
+  await writeIndex(b, repo, list.filter((e: any) => e.pageId !== pageId));
 }
 
 // 清空回收站
@@ -322,7 +324,7 @@ async function purgeExpired() {
   const ttl = retentionDays() * 864e5;
   const now = Date.now();
   const list = await readIndex(b, repo);
-  const keep = [];
+  const keep: any[] = [];
   for (const e of list) {
     if (now - e.deletedAt > ttl) {
       try { await b("remove-plugin-file", pluginName, e.fileName); } catch { /* ignore */ }
@@ -355,13 +357,13 @@ function stopCleanupTimer() {
 // 标题工具
 // ============================================================
 
-function titleOf(node) {
+function titleOf(node: any) {
   if (!node) return "(无标题)";
   const t = firstText(node);
   return t ? t.slice(0, 80) : "(无标题)";
 }
 
-function firstText(node) {
+function firstText(node: any): string {
   if (!node) return "";
   if (Array.isArray(node.content)) {
     for (const c of node.content) {
@@ -394,20 +396,20 @@ function ensureGlobals() {
   ReactDOM = window.ReactDOM;
 }
 
-function formatTime(ts) {
+function formatTime(ts: any) {
   try {
     const d = new Date(ts);
-    const p = n => String(n).padStart(2, "0");
+    const p = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   } catch { return ""; }
 }
 
-function remainingText(ms) {
+function remainingText(ms: number) {
   const days = ms / 864e5;
   return days <= 0 ? "今天过期" : days < 1 ? "剩不到 1 天" : `剩 ${Math.ceil(days)} 天`;
 }
 
-function TrashDialog({ onClose }) {
+function TrashDialog({ onClose }: any) {
   const [items, setItems] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
   const refresh = React.useCallback(() => {
@@ -415,28 +417,28 @@ function TrashDialog({ onClose }) {
   }, []);
   React.useEffect(() => { refresh(); }, [refresh]);
   React.useEffect(() => {
-    const onKey = e => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function restore(id) {
+  async function restore(id: any) {
     setBusy(true);
     try { await restorePage(id); refresh(); }
-    catch (e) { orca.notify?.("error", `恢复失败：${e?.message ?? e}`, { title: "回收站" }); }
+    catch (e: any) { orca.notify?.("error", `恢复失败：${e?.message ?? e}`, { title: "回收站" }); }
     finally { setBusy(false); }
   }
-  async function purge(id) {
+  async function purge(id: any) {
     setBusy(true);
     try { await purgePage(id); refresh(); }
-    catch (e) { orca.notify?.("error", `删除失败：${e?.message ?? e}`, { title: "回收站" }); }
+    catch (e: any) { orca.notify?.("error", `删除失败：${e?.message ?? e}`, { title: "回收站" }); }
     finally { setBusy(false); }
   }
   async function purgeAllItems() {
     if (items.length !== 0 && window.confirm(`确定清空回收站？共 ${items.length} 项将被永久删除，不可恢复。`)) {
       setBusy(true);
       try { await purgeAll(); refresh(); }
-      catch (e) { orca.notify?.("error", `清空失败：${e?.message ?? e}`, { title: "回收站" }); }
+      catch (e: any) { orca.notify?.("error", `清空失败：${e?.message ?? e}`, { title: "回收站" }); }
       finally { setBusy(false); }
     }
   }
@@ -450,21 +452,21 @@ function TrashDialog({ onClose }) {
   }, [items, sort]);
 
   return React.createElement("div", { className: "orca-trash-backdrop", onMouseDown: onClose },
-    React.createElement("div", { className: "orca-trash-pop", onMouseDown: e => e.stopPropagation() },
+    React.createElement("div", { className: "orca-trash-pop", onMouseDown: (e: any) => e.stopPropagation() },
       React.createElement("div", { className: "orca-trash-head" },
         React.createElement("span", null, "回收站"),
         React.createElement("div", { className: "orca-trash-head-tools" },
           React.createElement("button", {
             className: "orca-trash-sort",
             title: "切换排序方式",
-            onClick: () => setSort(s => s === "deletedDesc" ? "remainingAsc" : "deletedDesc")
+            onClick: () => setSort((s: string) => s === "deletedDesc" ? "remainingAsc" : "deletedDesc")
           }, sort === "deletedDesc" ? "删除时间倒序 ↓" : "剩余时长 ↑"),
           React.createElement("span", { className: "orca-trash-close", onClick: onClose }, "✕")
         )
       ),
       React.createElement("div", { className: "orca-trash-body" },
         sorted.length === 0 && React.createElement("div", { className: "orca-trash-empty" }, "回收站为空"),
-        sorted.map(item =>
+        sorted.map((item: any) =>
           React.createElement("div", { className: "orca-trash-row", key: item.pageId },
             React.createElement("div", { className: "orca-trash-meta" },
               React.createElement("div", { className: "orca-trash-title", title: item.title }, item.title || "(无标题)"),
@@ -491,7 +493,7 @@ function openTrashDialog() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   let closed = false;
-  let root = null;
+  let root: any = null;
   const close = () => {
     if (closed) return;
     closed = true;
@@ -506,7 +508,7 @@ function openTrashDialog() {
     } else {
       ReactDOM.render(el, host);
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("[TRASH] 打开回收站浮层失败：", e);
     close();
   }
@@ -555,7 +557,7 @@ function unregisterHeadbarEntry() {
 // 设置 schema 与生命周期
 // ============================================================
 
-export async function enable(name) {
+export async function enable(name: string) {
   pluginName = name;
   try {
     installHook();
@@ -563,7 +565,7 @@ export async function enable(name) {
     await purgeExpired().catch(() => { /* ignore */ });
     registerHeadbarEntry();
     console.log(`${name} loaded.`);
-  } catch (e) {
+  } catch (e: any) {
     console.error(`[TRASH] ${name} 加载失败：`, e);
     try { orca.notify?.("error", `回收站插件加载失败：${e?.message ?? e}`); } catch { /* ignore */ }
   }

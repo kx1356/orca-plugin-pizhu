@@ -197,23 +197,34 @@ export async function unload() {
   }
   unregisterCommands(pluginName)
 
-  // 停用可选功能模块（页签栏 / 回收站）
+  // 停用可选功能模块（页签栏 / 回收站）：无条件调用，确保即使开关状态失步也能清理干净
   try {
-    if (tabbarOn) {
-      disableTabbar()
-      tabbarOn = false
-    }
+    disableTabbar()
   } catch {
     /* ignore */
   }
+  tabbarOn = false
   try {
-    if (trashbinOn) {
-      disableTrashbin()
-      trashbinOn = false
-    }
+    disableTrashbin()
   } catch {
     /* ignore */
   }
+  trashbinOn = false
+
+  // 兜底清理可能残留的页签栏 DOM 状态
+  const bodyStyle = document.body.style
+  for (const prop of [
+    "--orca-tabbar-left",
+    "--orca-tabbar-right",
+    "--orca-tabbar-top",
+    "--orca-tabbar-bottom",
+    "--orca-tabbar-w",
+    "--orca-tabbar-accent",
+  ]) {
+    bodyStyle.removeProperty(prop)
+  }
+  document.body.classList.remove("orca-tabbar-on", "orca-tabbar-vertical")
+
   if (settingsUnsub) {
     try {
       settingsUnsub()

@@ -134,28 +134,55 @@ function toPopEntry(e: AnnEntry): PopEntry {
   }
 }
 
-/** 扫描 blocks 全表：含批注的块 → 回溯根块去重 → 每个根块收集批注；当前文档排最前，其余按标题排序 */
+/** 块内容 → 文本预览（截断到 60 字），与 ann.blockPreview 同规则 */
+function previewOfContent(content: any[]): string {
+  const text = content
+    .map((f) => (typeof f?.v === "string" ? f.v : ""))
+    .join("")
+    .trim()
+  return text.length > 60 ? text.slice(0, 60) + "…" : text
+}
+
+/** 单次扫描 blocks 全表，按根块分组收集批注（避免对每个根块重复遍历整棵树）；当前文档排最前，其余按标题排序 */
 function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPageGroup[] {
-  const rootSet = new Set<DbId>()
+  // 以 String(rootId) 为分组键：根块 id 在内存表与缓存中可能分别是 number/string，
+  // 统一字符串化可避免同一页面被拆成两组而出现重复条目。
+  const map = new Map<string, AnnPageGroup>()
+  const seenAnn = new Set<string>() // 批注 id 全局唯一，兜底去重
   for (const id of Object.keys(blocks)) {
     const content = blocks[id]?.content
-    if (Array.isArray(content) && content.some((f: any) => f?.t === "pizhu.ann")) {
-      rootSet.add(rootOf(id as unknown as DbId, blocks))
+    if (!Array.isArray(content)) continue
+    let ordinal = 0
+    let group: AnnPageGroup | undefined
+    for (const f of content) {
+      if (f?.t !== "pizhu.ann") continue
+      ordinal++
+      if (f.id && seenAnn.has(f.id)) continue
+      if (f.id) seenAnn.add(f.id)
+      if (group == null) {
+        const rid = rootOf(id as unknown as DbId, blocks)
+        const key = String(rid)
+        group = map.get(key)
+        if (group == null) {
+          group = { rootId: rid, title: pageTitle(blocks[rid]), entries: [] }
+          map.set(key, group)
+        }
+      }
+      group.entries.push({
+        key: f.id,
+        id: f.id,
+        v: f.v,
+        note: f.note ?? "",
+        ordinal,
+        blockId: id as unknown as DbId,
+        preview: previewOfContent(content),
+      })
     }
   }
-  const groups: AnnPageGroup[] = []
-  for (const rid of rootSet) {
-    const entries = collectAnnotations(rid)
-    if (entries.length === 0) continue
-    groups.push({
-      rootId: rid,
-      title: pageTitle(blocks[rid]),
-      entries: entries.map(toPopEntry),
-    })
-  }
+  const groups = Array.from(map.values())
   groups.sort((a, b) => {
-    if (a.rootId === currentRootId) return -1
-    if (b.rootId === currentRootId) return 1
+    if (String(a.rootId) === String(currentRootId)) return -1
+    if (String(b.rootId) === String(currentRootId)) return 1
     return a.title.localeCompare(b.title, "zh")
   })
   return groups
@@ -166,14 +193,19 @@ function mergeAllGroups(
   cached: CachedPage[],
   currentRootId: DbId | undefined,
 ): AnnPageGroup[] {
-  const map = new Map<DbId, AnnPageGroup>()
-  for (const g of local) map.set(g.rootId, g)
+  // 统一以 String(rootId) 为键，避免 number/string 不一致导致同页重复
+  const map = new Map<string, AnnPageGroup>()
+  const seenAnn = new Set<string>()
+  for (const g of local) {
+    const key = String(g.rootId)
+    map.set(key, g)
+    for (const e of g.entries) if (e.id) seenAnn.add(e.id)
+  }
   for (const p of cached) {
-    if (map.has(p.rootId) || p.anns.length === 0) continue // 内存实时优先
-    map.set(p.rootId, {
-      rootId: p.rootId,
-      title: p.title,
-      entries: p.anns.map((a) => ({
+    if (map.has(String(p.rootId)) || p.anns.length === 0) continue // 内存实时优先
+    const entries = p.anns
+      .filter((a) => !a.id || !seenAnn.has(a.id))
+      .map((a) => ({
         key: a.id,
         id: a.id,
         v: a.v,
@@ -181,13 +213,19 @@ function mergeAllGroups(
         ordinal: a.ordinal,
         blockId: a.blockId,
         preview: a.preview,
-      })),
+      }))
+    if (entries.length === 0) continue
+    for (const e of entries) if (e.id) seenAnn.add(e.id)
+    map.set(String(p.rootId), {
+      rootId: p.rootId,
+      title: p.title,
+      entries,
     })
   }
   const result = Array.from(map.values())
   result.sort((a, b) => {
-    if (a.rootId === currentRootId) return -1
-    if (b.rootId === currentRootId) return 1
+    if (String(a.rootId) === String(currentRootId)) return -1
+    if (String(b.rootId) === String(currentRootId)) return 1
     return a.title.localeCompare(b.title, "zh")
   })
   return result
@@ -236,10 +274,15 @@ export default function AnnPopupButton() {
     return () => { dead = true }
   }, [panels, syncRootId])
 
-  const entries: AnnEntry[] = useMemo(
-    () => (rootBlockId == null ? [] : collectAnnotations(rootBlockId)),
-    [rootBlockId, blocks],
-  )
+  const entries: AnnEntry[] = useMemo(() => {
+    if (rootBlockId == null) return []
+    const seen = new Set<string>()
+    return collectAnnotations(rootBlockId).filter((e) => {
+      if (seen.has(e.ann.id)) return false
+      seen.add(e.ann.id)
+      return true
+    })
+  }, [rootBlockId, blocks])
   const [allGroups, setAllGroups] = useState([] as AnnPageGroup[])
   // 打开文档（rootBlockId 变化）→ 后台刷新该文档缓存（积累机制）
   useEffect(() => {
