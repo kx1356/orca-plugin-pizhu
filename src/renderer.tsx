@@ -166,11 +166,13 @@ export default function AnnotationInline({
   )
 }
 
-/** 汇总页里的跳转芯片：点击跳到批注所在块 */
+/**
+ * 汇总页里的跳转芯片：按钮本体按虎鲸原生引用的外观渲染（原生箭头图标 + 原生 hover），
+ * 点击跳到批注所在块。用自定义 fragment 而非原生行内引用，避免其未文档化的 ref id 依赖。
+ */
 export function AnnotationRefInline({ data }: { data: any }) {
   const target = Number(data?.v)
   const color = typeof data?.color === "string" && data.color ? data.color : undefined
-  const label = data?.ordinal ? `#${data.ordinal}` : "↗"
   const onClick = (e: any) => {
     e.preventDefault()
     e.stopPropagation()
@@ -178,12 +180,15 @@ export function AnnotationRefInline({ data }: { data: any }) {
   }
   return (
     <span
-      className="orca-inline pizhu-ref-chip"
-      style={color ? { color, borderColor: color } : undefined}
+      className="orca-inline pizhu-ref"
+      data-type="r"
       onClick={onClick}
       title={t("Jump to annotation")}
     >
-      {label}
+      <i
+        className="ti ti-arrow-up-right orca-inline-r-alias-icon"
+        style={{ color: color || "var(--orca-color-primary-5)" }}
+      />
     </span>
   )
 }

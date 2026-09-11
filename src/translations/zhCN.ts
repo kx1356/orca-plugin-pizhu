@@ -39,14 +39,21 @@ const zhCN = {
   "No annotations in any document.": "所有文档都还没有批注。",
   "Add by selecting text and pressing Ctrl+Alt+A": "选中文字后按 Ctrl+Alt+A 添加。",
   "Open this annotation's document before deleting": "该批注所在文档尚未加载，请先点击条目跳转打开后再删除",
+  "Removed stale annotation from cache": "已移除失效批注（源块已不存在）",
+  "Removed ${count} stale annotations": "已清理 ${count} 条失效批注",
+  "No stale annotations": "没有失效批注",
+  "Failed to prune stale annotations": "清理失效批注失败",
+  "Prune stale annotations": "清理源块已删除的失效批注",
+  "Prune": "清理失效",
+  "Pruning…": "清理中…",
 
   // 汇总页
   "Jump to annotation": "跳转到批注",
   "Generate summary page": "生成批注汇总页",
   "Summary page updated (${count})": "批注汇总页已更新（${count} 条）",
   "Failed to generate summary": "生成汇总页失败",
-  "Updated ${time} · ${count} annotations": "更新时间：${time} · 共 ${count} 条批注",
-  "Maintained automatically by Pizhu Toolbox; do not edit manually.": "本页由 批注工具箱 自动维护；请勿手动编辑。",
+  "Failed to create summary page: ${name}": "创建汇总页失败：${name}",
+  "${count} annotations · Updated ${time} · maintained automatically, do not edit": "共 ${count} 条批注 · 更新于 ${time} · 本页由插件自动维护，请勿手动编辑",
 
   // 回收站
   "Trash bin": "回收站",

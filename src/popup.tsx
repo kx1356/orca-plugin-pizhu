@@ -1,7 +1,7 @@
 // 顶栏批注下拉卡：Popup 组件锚定顶栏按钮，汇总当前/全部文档的批注
 import type { DbId } from "./orca.d.ts"
 import { collectAnnotations, findViewPanelByView, type AnnEntry } from "./ann"
-import { ensureMemCache, getCachedPages, refreshDocCache } from "./annCache"
+import { ensureMemCache, getCachedPages, refreshDocCache, removeCachedAnn, pruneStaleCache } from "./annCache"
 import { collectAllGroups, mergeAllGroups, toPopEntry, type PopEntry, type AnnPageGroup } from "./collect"
 import { invokeAnnCommand } from "./commands"
 import { generateSummary } from "./summary"
@@ -247,17 +247,58 @@ export default function AnnPopupButton() {
     setOpen(false)
   }
 
+  /** 缓存变化后刷新「全部文档」列表 */
+  const recomputeAll = () => {
+    if (scope !== "all") return
+    setAllGroups(
+      mergeAllGroups(collectAllGroups(blocks, rootBlockId), getCachedPages(), rootBlockId),
+    )
+  }
+
   const remove = async (e: any, blockId: DbId, annId: string) => {
     e.stopPropagation()
-    // 全部文档模式下可能命中未加载文档的批注，其块不在内存表，直接删无效
+    // 全部文档模式下可能命中未加载文档的批注，其块不在内存表
     if (!(orca.state as any).blocks?.[blockId]) {
-      orca.notify?.("warn", t("Open this annotation's document before deleting"))
+      let exists = false
+      try {
+        const blk: any = await orca.invokeBackend("get-block" as any, blockId)
+        exists = blk != null
+      } catch {
+        exists = false
+      }
+      if (exists) {
+        orca.notify?.("warn", t("Open this annotation's document before deleting"))
+        return
+      }
+      // 源块已不存在：只清理失效缓存条目
+      removeCachedAnn(annId)
+      orca.notify?.("success", t("Removed stale annotation from cache"))
+      recomputeAll()
       return
     }
     try {
       await invokeAnnCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
     } catch (err: any) {
       orca.notify?.("error", `${t("Failed to delete annotation")}: ${err?.message ?? err}`)
+    }
+  }
+
+  const [busyClean, setBusyClean] = useState(false)
+  const cleanStale = async () => {
+    setBusyClean(true)
+    try {
+      const n = await pruneStaleCache()
+      orca.notify?.(
+        "success",
+        n > 0
+          ? t("Removed ${count} stale annotations", { count: String(n) })
+          : t("No stale annotations"),
+      )
+      recomputeAll()
+    } catch (err: any) {
+      orca.notify?.("error", `${t("Failed to prune stale annotations")}: ${err?.message ?? err}`)
+    } finally {
+      setBusyClean(false)
     }
   }
 
@@ -440,6 +481,14 @@ export default function AnnPopupButton() {
               onClick={() => setSort((SORT_ORDER[(SORT_ORDER.indexOf(sort as SortMode) + 1) % SORT_ORDER.length]))}
             >
               {t("Sort")}: {t(SORT_LABEL[sort as SortMode])}
+            </button>
+            <button
+              className="pizhu-pop-sort"
+              title={t("Prune stale annotations")}
+              onClick={cleanStale}
+              disabled={busyClean}
+            >
+              {busyClean ? t("Pruning…") : t("Prune")}
             </button>
           </div>
           {totalCount === 0 ? (

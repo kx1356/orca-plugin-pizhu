@@ -13,6 +13,10 @@
 
 ## 发布到虎鲸集市
 
+> **⚠️ 不要自动发布。** 除非用户明确下达发布指令，否则不要执行 commit/push、打 tag、创建 GitHub Release、或向 awesome-orcanote 提 PR。默认只做「类型检查 → 构建 → 本地部署」，改动留在工作区等待指令。
+>
+> **⚠️ 集市只保留一个 PR。** 同一时间只维护一个 awesome-orcanote PR：后续更新复用同一个分支，把新 commit push 上去（PR 会自动更新），**不要新建 PR**。只有当该 PR 已被合并、才需要为下一次发布新建。当前分支：`update-orca-pizhu-3.6.0`（PR #180）。
+
 集市从 [sethyuan/awesome-orcanote](https://github.com/sethyuan/awesome-orcanote) 的 `plugins.json` 拉取列表；发布 = 更新该文件并发 PR。完整步骤见 `RELEASE.md`。前置：`gh` 已登录 `kx1356`。
 
 1. 更新 `CHANGELOG.md` 并**提交所有改动**（脚本要求工作区干净）。

@@ -1,68 +1,112 @@
 // 批注汇总页：把所有批注生成/刷新到一个 Orca 原生页面。
-// 结构：页面 → 更新时间/说明 → 每个来源页面一个标题块 → 每条批注一个列表项
-//（原文 + 批注内容 + 可点击跳转芯片 pizhu.ref）。除跳转芯片外均为原生块，可搜索/组织。
-import type { DbId } from "./orca.d.ts"
+// 方案 A「嵌套大纲」：头部信息 → 每个来源页面一个列表项 → 其下缩进嵌套该页每条批注。
+//   条目内容形如： “原文” — 批注内容  ↗（点击跳转到原块）
+// 全程使用官方编辑器命令（core.editor.*）；用「上一个块之后」链式插入保证顺序稳定。
+import type { Block, DbId } from "./orca.d.ts"
 import { collectAllGroups, mergeAllGroups, type AnnPageGroup } from "./collect"
 import { ensureMemCache, getCachedPages } from "./annCache"
 import { t } from "./libs/l10n"
 
-type BackendFn = (name: string, ...args: any[]) => any
-
-/** 直接调用后端（绕过回收站 hook 的 delete-blocks 拦截由 hook 自行透传非顶层块） */
-function backend(): BackendFn {
-  return (name: string, ...args: any[]) => (orca.invokeBackend as any)(name, ...args)
+/** 调用编辑器命令（cursor 固定为 null） */
+function ed(id: string, ...args: any[]): Promise<any> {
+  return (orca.commands as any).invokeEditorCommand(id, null, ...args)
 }
 
-function extractId(result: any): DbId | null {
+/** 返回结果的块 id（insertBlock 返回 id 或含 id 的对象） */
+function newId(result: any): DbId | null {
   if (result == null) return null
-  if (Array.isArray(result)) {
-    const first = result[0]
-    return first && typeof first === "object" ? (first.id ?? first) : first
-  }
-  return typeof result === "object" ? (result.id ?? result) : result
+  if (typeof result === "object") return (result.id ?? null) as DbId | null
+  return result as DbId
 }
 
-/** 查找或创建汇总页（顶层页面 + 别名） */
-async function getOrCreateSummaryPage(alias: string): Promise<DbId> {
-  const b = backend()
+/** 规整块对象：补齐可能缺失的数组字段，避免编辑器命令内部迭代 undefined 报错 */
+function normalizeBlock(b: any): Block | null {
+  if (b == null) return null
+  return {
+    ...b,
+    children: Array.isArray(b.children) ? b.children : [],
+    aliases: Array.isArray(b.aliases) ? b.aliases : [],
+    properties: Array.isArray(b.properties) ? b.properties : [],
+    refs: Array.isArray(b.refs) ? b.refs : [],
+    backRefs: Array.isArray(b.backRefs) ? b.backRefs : [],
+  } as Block
+}
+
+/** 取块对象：优先内存，其次后端；统一规整 */
+async function blockById(id: DbId): Promise<Block | null> {
+  const live = (orca.state as any).blocks?.[id]
+  if (live != null) return normalizeBlock(live)
   try {
-    const existing = await b("get-blockid-by-alias", alias)
-    if (existing != null) return existing as DbId
-  } catch { /* 不存在则创建 */ }
-  const created = await b(
-    "create-block",
-    undefined,
-    null,
-    null,
-    null,
-    { type: "text" },
-    [{ t: "t", v: alias }],
-    alias,
-  )
-  const id = extractId(created)
-  if (id == null) throw new Error("create-block returned no id")
-  try { await b("create-alias", alias, id, true, null) } catch { /* ignore */ }
-  return id as DbId
+    return normalizeBlock(await orca.invokeBackend("get-block" as any, id))
+  } catch {
+    return null
+  }
 }
 
-/** 在页面末尾创建子块 */
-async function createChild(
-  b: BackendFn,
-  parentId: DbId,
-  leftId: DbId | null,
-  repr: any,
+/** 按别名取整块对象（后端查询，与是否加载无关） */
+async function findPageByAlias(alias: string): Promise<Block | null> {
+  try {
+    return normalizeBlock(await orca.invokeBackend("get-block-by-alias" as any, alias))
+  } catch {
+    return null
+  }
+}
+
+/** 查找或创建汇总页（顶层页面 + 别名），返回块对象 */
+async function getOrCreateSummaryPage(alias: string): Promise<Block> {
+  const existing = await findPageByAlias(alias)
+  if (existing != null) return existing
+  try {
+    await orca.commands.invokeGroup(async () => {
+      const id = await ed("core.editor.insertBlock", null, null, [{ t: "t", v: alias }])
+      if (id == null) throw new Error("insertBlock returned no id")
+      await ed("core.editor.createAlias", alias, id)
+    })
+  } catch { /* 回读确认，失败再抛 */ }
+  const created = await findPageByAlias(alias)
+  if (created == null) throw new Error(t("Failed to create summary page: ${name}", { name: alias }))
+  return created
+}
+
+/** 在指定父块末尾追加一个子块，返回新块对象 */
+async function appendChild(parent: Block, content: any[], repr: any): Promise<Block | null> {
+  const id = newId(await ed("core.editor.insertBlock", parent, "lastChild", content, repr))
+  return id == null ? null : blockById(id)
+}
+
+/** 在上一个块「之后」插入（sibling），保证顺序；last 为空则作为 parent 的末子块 */
+async function appendAfter(
+  parent: Block,
+  last: Block | null,
   content: any[],
-  text: string,
-): Promise<DbId | null> {
-  const created = await b("create-block", parentId, leftId, null, null, repr, content, text)
-  return extractId(created)
+  repr: any,
+): Promise<Block | null> {
+  const ref = last ?? parent
+  const pos = last ? "after" : "lastChild"
+  const id = newId(await ed("core.editor.insertBlock", ref, pos, content, repr))
+  return id == null ? null : blockById(id)
 }
 
 /**
- * 生成/刷新批注汇总页。
- * @returns 页面 id 与批注条数
+ * 批注条目内容：  “原文” ｜ 批注内容  ↗（跳转芯片）
+ * 原文带波浪线样式由芯片外的普通文本呈现；跳转芯片点击跳到被批注的块。
  */
-export async function generateSummary(
+function entryContent(e: AnnPageGroup["entries"][number]): any[] {
+  const out: any[] = [{ t: "t", v: `“${e.v}”` }]
+  if (e.note) {
+    out.push({ t: "t", v: "  ｜  " })
+    out.push({ t: "t", v: e.note })
+  }
+  out.push({ t: "t", v: " " })
+  out.push({ t: "pizhu.ref", v: e.blockId, color: e.color })
+  return out
+}
+
+/**
+ * 生成/刷新批注汇总页（内部实现）。首次创建页面后块可能尚未完全就绪，
+ * 因此外部 generateSummary 会在失败时延迟重试一次。
+ */
+async function runGenerate(
   pluginName: string,
   aliasOverride?: string,
 ): Promise<{ pageId: DbId; count: number }> {
@@ -71,7 +115,6 @@ export async function generateSummary(
     (typeof aliasOverride === "string" && aliasOverride.trim()) ||
     (typeof settings.summaryAlias === "string" && settings.summaryAlias.trim()) ||
     "批注汇总"
-  const b = backend()
 
   // 收集批注：内存实时 + 跨文档缓存
   await ensureMemCache().catch(() => { /* ignore */ })
@@ -83,38 +126,60 @@ export async function generateSummary(
   )
   const count = groups.reduce((n, g) => n + g.entries.length, 0)
 
-  const pageId = await getOrCreateSummaryPage(alias)
+  const pageBlock = await getOrCreateSummaryPage(alias)
+  const pageId = pageBlock.id
 
-  // 清空现有子块后重建（汇总页由插件维护；子块非顶层页面，不会被回收站快照）
-  try {
-    const page: any = await b("get-block", pageId)
-    const children = Array.isArray(page?.children) ? page.children : []
-    if (children.length) await b("delete-blocks", children)
-  } catch { /* ignore */ }
+  // 清空现有子块后重建（汇总页由插件维护）
+  const children = Array.isArray(pageBlock.children) ? pageBlock.children.slice() : []
+  if (children.length > 0) {
+    try { await ed("core.editor.deleteBlocks", children) } catch { /* ignore */ }
+  }
 
-  let prev: DbId | null = null
-  const headerText = t("Updated ${time} · ${count} annotations", {
-    time: new Date().toLocaleString(),
+  // 顶部信息（单个块，置顶）
+  const headerText = t("${count} annotations · Updated ${time} · maintained automatically, do not edit", {
     count: String(count),
+    time: new Date().toLocaleString(),
   })
-  prev = await createChild(b, pageId, prev, { type: "text" }, [{ t: "t", v: headerText }], headerText)
-  const hint = t("Maintained automatically by Pizhu Toolbox; do not edit manually.")
-  prev = await createChild(b, pageId, prev, { type: "text" }, [{ t: "t", v: hint }], hint)
+  let lastTop: Block | null = await appendChild(pageBlock, [{ t: "t", v: headerText }], { type: "text" })
 
+  // 每个来源页面一个列表项（标题加粗 + 跳转芯片），其下嵌套该页批注
   for (const g of groups) {
-    prev = await createChild(b, pageId, prev, { type: "heading", level: 2 }, [{ t: "t", v: g.title }], g.title)
+    const pageContent: any[] = [
+      { t: "t", v: g.title, f: "b" },
+      { t: "t", v: " " },
+      { t: "pizhu.ref", v: g.rootId },
+    ]
+    const pageItem = await appendAfter(pageBlock, lastTop, pageContent, { type: "ul" })
+    lastTop = pageItem
+    if (pageItem == null) continue
+
+    let lastEntry: Block | null = null
     for (const e of g.entries) {
-      const content: any[] = [
-        { t: "t", v: `“${e.v}”` },
-        { t: "t", v: " — " },
-        { t: "t", v: e.note || "" },
-        { t: "t", v: " " },
-        { t: "pizhu.ref", v: e.blockId, color: e.color, ordinal: e.ordinal },
-      ]
-      const text = `“${e.v}” — ${e.note || ""}`
-      prev = await createChild(b, pageId, prev, { type: "ul" }, content, text)
+      lastEntry = await appendAfter(pageItem, lastEntry, entryContent(e), { type: "ul" })
     }
   }
 
   return { pageId, count }
+}
+
+/**
+ * 生成/刷新批注汇总页。
+ * 首次创建页面后，新建块可能尚未在编辑器中完全就绪，导致首跑失败；
+ * 这里在失败时等待片刻再重试一次（等价于用户点第二次）。
+ * @returns 页面 id 与批注条数
+ */
+export async function generateSummary(
+  pluginName: string,
+  aliasOverride?: string,
+): Promise<{ pageId: DbId; count: number }> {
+  try {
+    return await runGenerate(pluginName, aliasOverride)
+  } catch (firstError) {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    try {
+      return await runGenerate(pluginName, aliasOverride)
+    } catch {
+      throw firstError
+    }
+  }
 }

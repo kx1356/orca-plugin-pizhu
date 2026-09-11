@@ -71,6 +71,81 @@ export function getCachedPages(): CachedPage[] {
   return Object.values(memCache)
 }
 
+/** 从缓存中移除单条批注（按 ann id） */
+export function removeCachedAnn(annId: string): boolean {
+  let changed = false
+  for (const key of Object.keys(memCache)) {
+    const page = memCache[key]
+    const before = page.anns.length
+    page.anns = page.anns.filter((a) => a.id !== annId)
+    if (page.anns.length !== before) {
+      changed = true
+      if (page.anns.length === 0) delete memCache[key]
+      else page.updated = Date.now()
+    }
+  }
+  if (changed) persist()
+  return changed
+}
+
+/** 按块/页面 id 批量清理缓存条目（页面根命中则整页移除） */
+export function removeCachedByIds(ids: (DbId | string)[]): number {
+  if (ids.length === 0) return 0
+  const set = new Set(ids.map((i) => String(i)))
+  let removed = 0
+  for (const key of Object.keys(memCache)) {
+    const page = memCache[key]
+    if (set.has(String(page.rootId))) {
+      removed += page.anns.length
+      delete memCache[key]
+      continue
+    }
+    const kept = page.anns.filter((a) => !set.has(String(a.blockId)))
+    if (kept.length !== page.anns.length) {
+      removed += page.anns.length - kept.length
+      if (kept.length === 0) delete memCache[key]
+      else { page.anns = kept; page.updated = Date.now() }
+    }
+  }
+  if (removed > 0) persist()
+  return removed
+}
+
+/** 检查块在后端是否存在（get-block 直接查库，与是否加载到内存无关） */
+async function blockExists(blockId: DbId | string | undefined): Promise<boolean> {
+  if (blockId == null) return false
+  try {
+    const blk: any = await orca.invokeBackend("get-block" as any, blockId)
+    return blk != null
+  } catch {
+    return false
+  }
+}
+
+/** 清理缓存中源页面/块已不存在的批注，返回移除条数 */
+export async function pruneStaleCache(): Promise<number> {
+  await ensureMemCache()
+  let removed = 0
+  for (const key of Object.keys(memCache)) {
+    const page = memCache[key]
+    if (page == null) { delete memCache[key]; continue }
+    if (!(await blockExists(page.rootId))) {
+      removed += page.anns.length
+      delete memCache[key]
+      continue
+    }
+    const flags = await Promise.all(page.anns.map((a) => blockExists(a.blockId)))
+    const kept = page.anns.filter((_, i) => flags[i])
+    if (kept.length !== page.anns.length) {
+      removed += page.anns.length - kept.length
+      if (kept.length === 0) delete memCache[key]
+      else { page.anns = kept; page.updated = Date.now() }
+    }
+  }
+  if (removed > 0) persist()
+  return removed
+}
+
 /** 刷新单个文档的批注缓存：以内存块表为准（加载中的文档块表完整），无批注则移除该项 */
 export function refreshDocCache(rootId: DbId | undefined): void {
   if (rootId == null) return

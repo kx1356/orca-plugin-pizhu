@@ -4,6 +4,7 @@
 // 拦截删除操作，自动保存页面快照，可随时恢复或彻底删除
 // ============================================================
 import { t } from "../libs/l10n";
+import { removeCachedByIds } from "../annCache";
 
 let pluginName = "";
 
@@ -144,7 +145,10 @@ async function interceptDelete(args: any[]) {
     try { orca.notify?.("error", t("Failed to save snapshot; the page was not deleted (${msg}).", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); } catch { /* ignore */ }
     return [];
   }
-  return b("delete-blocks", ...args);
+  const result = await b("delete-blocks", ...args);
+  // 页面/块已删除，清理批注缓存中对应的失效条目
+  try { removeCachedByIds(ids); } catch { /* ignore */ }
+  return result;
 }
 
 // ============================================================
