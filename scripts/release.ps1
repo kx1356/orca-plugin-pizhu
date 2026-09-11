@@ -19,7 +19,7 @@ function Write-Step {
   Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-# 本机 PowerShell 执行策略会拦截 npm.ps1，统一走 .cmd / 直接调用本地二进制
+# PowerShell execution policy blocks npm.ps1; use .cmd / local binaries instead
 $script:Tsc = Join-Path $repoRoot "node_modules\.bin\tsc.cmd"
 $script:Vite = Join-Path $repoRoot "node_modules\.bin\vite.cmd"
 
