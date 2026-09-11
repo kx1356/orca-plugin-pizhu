@@ -20,8 +20,8 @@ function Write-Step {
 }
 
 # 本机 PowerShell 执行策略会拦截 npm.ps1，统一走 .cmd / 直接调用本地二进制
-$Tsc = Join-Path $repoRoot "node_modules\.bin\tsc.cmd"
-$Vite = Join-Path $repoRoot "node_modules\.bin\vite.cmd"
+$script:Tsc = Join-Path $repoRoot "node_modules\.bin\tsc.cmd"
+$script:Vite = Join-Path $repoRoot "node_modules\.bin\vite.cmd"
 
 function Invoke-MarketplaceValidation {
   Write-Step "Validating marketplace metadata"
@@ -33,11 +33,11 @@ function Invoke-MarketplaceValidation {
 
 function Invoke-Build {
   Write-Step "Type-checking"
-  & $Tsc --noEmit -p tsconfig.json
+  & $script:Tsc --noEmit -p tsconfig.json
   if ($LASTEXITCODE -ne 0) { throw "Type check failed." }
 
   Write-Step "Building plugin"
-  & $Vite build
+  & $script:Vite build
   if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 }
 
@@ -45,7 +45,7 @@ function New-LocalReleaseZip {
   param([string]$Version)
 
   $pluginDirName = "orca-pizhu"
-  $releaseRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "release"))
+  $releaseRoot = [System.IO.Path]::GetFullPath((Join-Path $script:repoRoot "release"))
   $pluginRoot = Join-Path $releaseRoot $pluginDirName
   $archiveName = "$pluginDirName-v$Version.zip"
   $archivePath = Join-Path $releaseRoot $archiveName
