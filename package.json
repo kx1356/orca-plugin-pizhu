@@ -1,7 +1,7 @@
 {
   "name": "orca-plugin-pizhu",
   "description": "All-in-one toolbox plugin for Orca Note: annotations (wavy underline + numbered badges + hover preview + edit/delete cards + colors + cross-block + search/keyboard navigation + one-click top-bar popup + generated summary page), Fluent 2 editor tab bar (click to switch, drag to reorder/split, vertical mode, pinned tabs), and trash bin (deleted pages auto-saved, restorable or permanently purged, search + batch actions). All features toggleable in settings.",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "license": "MIT",
   "author": "kx1356",
   "keywords": [
