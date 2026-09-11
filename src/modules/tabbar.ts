@@ -1,4 +1,5 @@
 // ============================================================
+import { t } from "../libs/l10n";
 // Orca Tab Bar — 缓存编辑器页签
 // 提炼自 orca-neo 主题 v2.0.0 的「缓存编辑器页签」功能
 // 点击切换 / 中键关闭 / 拖拽排序 / 拖到面板边缘分栏 / 垂直模式
@@ -201,27 +202,27 @@ function blockTitle(block: any, depth = 0): string {
 }
 
 const VIEW_TITLES = {
-  journal: "日记",
-  search: "搜索",
-  tags: "标签",
-  graph: "关系图",
-  whiteboard: "白板"
+  journal: "Journal",
+  search: "Search",
+  tags: "Tags",
+  graph: "Graph",
+  whiteboard: "Whiteboard"
 };
 
 // 页签标题
 function tabTitle(entry: any): string {
-  let t = "";
+  let title = "";
   try {
     if (entry.view === "journal") {
-      t = formatDate(entry.viewArgs?.date);
+      title = formatDate(entry.viewArgs?.date);
     } else if (entry.view === "block" || entry.view === "bgraph") {
-      t = blockTitle(blockOf(entry.viewArgs?.blockId));
-      if (t && entry.view === "bgraph") t = `关系图：${t}`;
+      title = blockTitle(blockOf(entry.viewArgs?.blockId));
+      if (title && entry.view === "bgraph") title = t("Graph: ${title}", { title });
     }
-    if (!t) t = String(entry.viewArgs?.title ?? "");
+    if (!title) title = String(entry.viewArgs?.title ?? "");
   } catch { /* ignore */ }
-  if (t) { entry.title = t; return t; }
-  return entry.title || (VIEW_TITLES as Record<string, string>)[entry.view] || entry.view || "未命名";
+  if (title) { entry.title = title; return title; }
+  return entry.title || t((VIEW_TITLES as Record<string, string>)[entry.view] ?? "") || entry.view || t("Untitled");
 }
 
 const TYPE_ICONS = {
@@ -546,7 +547,7 @@ function renderTab(data: any) {
 
     const pin = document.createElement("span");
     pin.className = "orca-tab-pin ti ti-pin";
-    pin.title = "固定此页签";
+    pin.title = t("Pin tab");
     pin.addEventListener("click", e => {
       e.stopPropagation();
       pinTab(entry);
@@ -556,7 +557,7 @@ function renderTab(data: any) {
     const close = document.createElement("span");
     close.className = "orca-tab-close";
     close.textContent = "×";
-    close.title = "移出缓存";
+    close.title = t("Remove from cache");
     close.addEventListener("click", e => {
       e.stopPropagation();
       closeTab(panelId, entry.key);
@@ -619,7 +620,7 @@ function renderTab(data: any) {
 // 固定页签渲染：置顶组内，带取消固定按钮，中键也可取消
 function renderPinnedTab(tab: PinnedTab) {
   if (!tabbarEl) return;
-  const title = tab.title || tab.view || "未命名";
+  const title = tab.title || tab.view || t("Untitled");
   const activePanel = orca.state?.activePanel;
   const panel = activePanel ? findPanel(activePanel) : null;
   const isActive = panel != null && viewKey(panel.view ?? "", panel.viewArgs) === tab.key;
@@ -638,7 +639,7 @@ function renderPinnedTab(tab: PinnedTab) {
 
   const pin = document.createElement("span");
   pin.className = "orca-tab-pin ti ti-pin-filled";
-  pin.title = "取消固定";
+  pin.title = t("Unpin tab");
   pin.addEventListener("click", e => {
     e.stopPropagation();
     unpinTab(tab.key);

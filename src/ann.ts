@@ -1,8 +1,19 @@
 // 批注插件核心类型与工具函数
-import type { Block, ContentFragment, CursorNodeData, DbId } from "./orca.d.ts"
+import type { Block, ContentFragment, DbId } from "./orca.d.ts"
 
 /** 批注 fragment 的类型标识 */
 export const ANN_TYPE = "pizhu.ann"
+
+/** 可选批注颜色预设：空字符串 = 跟随主题强调色 */
+export const ANN_COLORS = [
+  "",
+  "#0F6CBD",
+  "#C42B1C",
+  "#107C10",
+  "#8764B8",
+  "#CA5010",
+  "#038387",
+] as const
 
 /** 批注 fragment 结构：t=v 存原文文本，note 存批注内容，texts 存原文 fragments 快照（删除时还原） */
 export interface AnnFragment extends ContentFragment {
@@ -13,6 +24,8 @@ export interface AnnFragment extends ContentFragment {
   texts: ContentFragment[]
   created: number
   modified?: number
+  /** 该批注的自定义颜色（留空/未设置则跟随主题强调色） */
+  color?: string
   /** 创建时从 DOM 捕获的原文样式快照（字号/颜色等），渲染时还原，避免批注后文本变默认样式 */
   domStyle?: Record<string, string>
 }
@@ -36,8 +49,8 @@ function textOf(f: ContentFragment | undefined): string {
  */
 export function extractRange(
   content: ContentFragment[],
-  start: CursorNodeData,
-  end: CursorNodeData,
+  start: RangePos,
+  end: RangePos,
 ): { fragments: ContentFragment[]; text: string } {
   const fragments: ContentFragment[] = []
   let text = ""
@@ -72,8 +85,8 @@ export function extractRange(
  */
 export function replaceRange(
   content: ContentFragment[],
-  start: CursorNodeData,
-  end: CursorNodeData,
+  start: RangePos,
+  end: RangePos,
   ann: AnnFragment,
 ): ContentFragment[] {
   const len = content.length
@@ -113,7 +126,7 @@ export function replaceRange(
 export function updateAnn(
   content: ContentFragment[],
   annId: string,
-  patch: Partial<Pick<AnnFragment, "note" | "modified" | "v">>,
+  patch: Partial<Pick<AnnFragment, "note" | "modified" | "v" | "color">>,
 ): ContentFragment[] {
   return content.map((f) => {
     if (!isAnn(f) || f.id !== annId) return f
@@ -139,13 +152,54 @@ export function removeAnn(
   return result
 }
 
-/** 批注在块内的序号（从 1 开始，按 content 中出现的顺序） */
-export function annOrdinal(content: ContentFragment[], upToIndex: number): number {
-  let n = 0
-  for (let i = 0; i <= upToIndex && i < content.length; i++) {
-    if (isAnn(content[i])) n++
+/** fragment 的纯文本长度（非文本 fragment 视为 0） */
+export function fragLen(f: ContentFragment | undefined): number {
+  return f == null ? 0 : String(f.v ?? "").length
+}
+
+/** 最小范围定位（只依赖 content 数组索引与字符偏移） */
+export interface RangePos {
+  index: number
+  offset: number
+}
+
+/** 选区覆盖的 fragment 索引范围内是否已有批注（用于阻止嵌套批注） */
+export function rangeHasAnn(
+  content: ContentFragment[],
+  start: RangePos,
+  end: RangePos,
+): boolean {
+  const len = content.length
+  if (len === 0) return false
+  const si = Math.max(0, Math.min(start.index, len - 1))
+  const ei = Math.max(0, Math.min(end.index, len - 1))
+  for (let i = si; i <= ei; i++) {
+    if (isAnn(content[i])) return true
   }
-  return n
+  return false
+}
+
+/**
+ * 取同一父块下从 startId 到 endId（按文档顺序）的兄弟块 id 列表。
+ * 两者父块不同、或找不到时返回 null。
+ */
+export function siblingRange(
+  blocks: Record<string | DbId, Block | undefined>,
+  startId: DbId,
+  endId: DbId,
+): DbId[] | null {
+  const a = blocks[startId]
+  const b = blocks[endId]
+  if (a == null || b == null) return null
+  if (a.parent !== b.parent) return null
+  const parent = blocks[a.parent as DbId]
+  const children = (parent?.children ?? []) as DbId[]
+  const ia = children.indexOf(a.id as DbId)
+  const ib = children.indexOf(b.id as DbId)
+  if (ia < 0 || ib < 0) return null
+  const from = Math.min(ia, ib)
+  const to = Math.max(ia, ib)
+  return children.slice(from, to + 1)
 }
 
 /**
@@ -195,7 +249,7 @@ export function collectAnnotations(rootBlockId: DbId): AnnEntry[] {
     if (block == null) return
     const content = block.content ?? []
     let ord = 0
-    content.forEach((f, i) => {
+    content.forEach((f) => {
       if (isAnn(f)) {
         ord++
         entries.push({ ann: f, block, ordinal: ord })

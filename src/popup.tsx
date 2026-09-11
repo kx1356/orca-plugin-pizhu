@@ -1,4 +1,4 @@
-// 顶栏批注下拉卡：Popup 组件锚定顶栏按钮，汇总当前文档所有批注（替代原侧栏）
+// 顶栏批注下拉卡：Popup 组件锚定顶栏按钮，汇总当前/全部文档的批注
 import type { DbId } from "./orca.d.ts"
 import {
   collectAnnotations,
@@ -9,6 +9,8 @@ import {
   type AnnEntry,
 } from "./ann"
 import { ensureMemCache, getCachedPages, refreshDocCache, type CachedPage } from "./annCache"
+import { invokeAnnCommand } from "./commands"
+import { t } from "./libs/l10n"
 
 const { useState, useRef, useEffect, useMemo } = window.React as any
 const { useSnapshot } = window.Valtio as any
@@ -112,6 +114,7 @@ interface PopEntry {
   ordinal: number // 块内序号
   blockId: DbId
   preview: string // 块文本预览
+  color?: string // 批注自定义颜色
 }
 
 /** 全部文档的批注分组（按页面） */
@@ -131,6 +134,7 @@ function toPopEntry(e: AnnEntry): PopEntry {
     ordinal: e.ordinal,
     blockId: e.block.id as DbId,
     preview: blockPreview(e),
+    color: e.ann.color,
   }
 }
 
@@ -152,7 +156,9 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
   for (const id of Object.keys(blocks)) {
     const content = blocks[id]?.content
     if (!Array.isArray(content)) continue
+    const realId = (blocks[id]?.id ?? id) as DbId
     let ordinal = 0
+    let preview: string | null = null
     let group: AnnPageGroup | undefined
     for (const f of content) {
       if (f?.t !== "pizhu.ann") continue
@@ -160,7 +166,7 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
       if (f.id && seenAnn.has(f.id)) continue
       if (f.id) seenAnn.add(f.id)
       if (group == null) {
-        const rid = rootOf(id as unknown as DbId, blocks)
+        const rid = rootOf(realId, blocks)
         const key = String(rid)
         group = map.get(key)
         if (group == null) {
@@ -168,14 +174,16 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
           map.set(key, group)
         }
       }
+      if (preview == null) preview = previewOfContent(content)
       group.entries.push({
         key: f.id,
         id: f.id,
         v: f.v,
         note: f.note ?? "",
         ordinal,
-        blockId: id as unknown as DbId,
-        preview: previewOfContent(content),
+        blockId: realId,
+        preview,
+        color: f.color,
       })
     }
   }
@@ -187,6 +195,7 @@ function collectAllGroups(blocks: any, currentRootId: DbId | undefined): AnnPage
   })
   return groups
 }
+
 /** 合并内存表结果（实时、覆盖所有已加载文档）与缓存结果（曾打开过的文档），当前文档置顶 */
 function mergeAllGroups(
   local: AnnPageGroup[],
@@ -203,7 +212,7 @@ function mergeAllGroups(
   }
   for (const p of cached) {
     if (map.has(String(p.rootId)) || p.anns.length === 0) continue // 内存实时优先
-    const entries = p.anns
+    const entries: PopEntry[] = p.anns
       .filter((a) => !a.id || !seenAnn.has(a.id))
       .map((a) => ({
         key: a.id,
@@ -231,11 +240,43 @@ function mergeAllGroups(
   return result
 }
 
+type SortMode = "position" | "original" | "note"
+const SORT_ORDER: SortMode[] = ["position", "original", "note"]
+const SORT_LABEL: Record<SortMode, string> = {
+  position: "Position",
+  original: "Original",
+  note: "Note",
+}
+
+/** 按关键字过滤条目 */
+function matchEntry(e: PopEntry, q: string): boolean {
+  if (!q) return true
+  const s = q.toLowerCase()
+  return (
+    e.v.toLowerCase().includes(s) ||
+    e.note.toLowerCase().includes(s) ||
+    e.preview.toLowerCase().includes(s)
+  )
+}
+
+/** 对条目排序（position 保持原序） */
+function sortEntries(list: PopEntry[], mode: SortMode): PopEntry[] {
+  if (mode === "position") return list
+  const arr = list.slice()
+  if (mode === "original") arr.sort((a, b) => a.v.localeCompare(b.v, "zh"))
+  else arr.sort((a, b) => a.note.localeCompare(b.note, "zh"))
+  return arr
+}
+
 /** 顶栏按钮 + Popup 下拉卡：点按钮展开汇总，点外部/Esc 关闭，不占分栏空间 */
 export default function AnnPopupButton() {
   const { blocks, panels, plugins } = useSnapshot(orca.state)
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [sort, setSort] = useState("position" as SortMode)
+  const [activeIndex, setActiveIndex] = useState(0)
   const btnRef = useRef(null)
+  const innerRef = useRef(null) as any
   const [asyncRootId, setAsyncRootId] = useState(undefined)
   // 显示范围：仅当前文档 / 全部文档（插件设置 popScope，Valtio 响应式）
   const scope: "doc" | "all" =
@@ -303,11 +344,41 @@ export default function AnnPopupButton() {
     void ensureMemCache().then(update)
     return () => { dead = true }
   }, [scope, blocks, rootBlockId])
-  const groups: AnnPageGroup[] = scope === "all" ? allGroups : []
-  const totalCount =
-    scope === "all"
-      ? groups.reduce((n, g) => n + g.entries.length, 0)
-      : entries.length
+
+  // 过滤 + 排序后的可见数据
+  const docList: PopEntry[] = useMemo(
+    () => sortEntries(entries.map(toPopEntry).filter((e) => matchEntry(e, query)), sort),
+    [entries, query, sort],
+  )
+  const filteredGroups: AnnPageGroup[] = useMemo(() => {
+    if (scope !== "all") return []
+    return (allGroups as AnnPageGroup[])
+      .map((g: AnnPageGroup) => ({
+        ...g,
+        entries: sortEntries(
+          g.entries.filter((e: PopEntry) => matchEntry(e, query)),
+          sort as SortMode,
+        ),
+      }))
+      .filter((g: AnnPageGroup) => g.entries.length > 0)
+  }, [scope, allGroups, query, sort])
+
+  // 键盘导航用的扁平列表
+  const navList: PopEntry[] = useMemo(
+    () => (scope === "all" ? filteredGroups.flatMap((g) => g.entries) : docList),
+    [scope, filteredGroups, docList],
+  )
+  const totalCount = navList.length
+
+  // 搜索/范围/排序变化时重置键盘选中项
+  useEffect(() => {
+    setActiveIndex(0)
+  }, [query, scope, sort, open])
+
+  // 打开时聚焦列表容器以接收键盘操作
+  useEffect(() => {
+    if (open) innerRef.current?.focus?.()
+  }, [open])
 
   const { Button, Popup } = orca.components as any
 
@@ -320,25 +391,82 @@ export default function AnnPopupButton() {
     e.stopPropagation()
     // 全部文档模式下可能命中未加载文档的批注，其块不在内存表，直接删无效
     if (!(orca.state as any).blocks?.[blockId]) {
-      orca.notify?.("warn", "该批注所在文档尚未加载，请先点击条目跳转打开后再删除")
+      orca.notify?.("warn", t("Open this annotation's document before deleting"))
       return
     }
-    await orca.commands.invokeCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
+    try {
+      await invokeAnnCommand(`${pluginPrefix}.ann.remove`, blockId, annId)
+    } catch (err: any) {
+      orca.notify?.("error", `${t("Failed to delete annotation")}: ${err?.message ?? err}`)
+    }
   }
 
-  const renderItem = (entry: PopEntry) => (
+  const copyAll = async () => {
+    const lines: string[] = [`## ${t("Annotations")} (${totalCount})`, ""]
+    let n = 0
+    for (const e of navList) {
+      n++
+      lines.push(`${n}. ${e.v}${e.note ? ` — ${e.note}` : ""}`)
+      if (e.preview) lines.push(`   > ${e.preview}`)
+    }
+    const md = lines.join("\n")
+    try {
+      await navigator.clipboard.writeText(md)
+      orca.notify?.("success", t("Copied annotations"))
+    } catch {
+      try {
+        const ta = document.createElement("textarea")
+        ta.value = md
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand("copy")
+        ta.remove()
+        orca.notify?.("success", t("Copied annotations"))
+      } catch {
+        orca.notify?.("error", t("Copy failed"))
+      }
+    }
+  }
+
+  const onKeyDown = (e: any) => {
+    if (navList.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActiveIndex((i: number) => Math.min(navList.length - 1, i + 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActiveIndex((i: number) => Math.max(0, i - 1))
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      const target = navList[Math.min(activeIndex, navList.length - 1)]
+      if (target) jump(target.blockId)
+    }
+  }
+
+  const renderItem = (entry: PopEntry, index: number) => (
     <div
       key={entry.key}
-      className="pizhu-pop-item"
+      className={"pizhu-pop-item" + (index === activeIndex ? " pizhu-pop-item-active" : "")}
+      role="button"
+      tabIndex={0}
+      aria-label={entry.v}
       onClick={() => jump(entry.blockId)}
+      onMouseEnter={() => setActiveIndex(index)}
+      onKeyDown={(e: any) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jump(entry.blockId) }
+      }}
     >
       <div className="pizhu-pop-item-top">
         <span className="pizhu-pop-ordinal">{entry.ordinal}</span>
+        {entry.color && (
+          <span className="pizhu-pop-color" style={{ background: entry.color }} aria-hidden="true" />
+        )}
         <span className="pizhu-pop-original">{entry.v}</span>
         <span className="pizhu-pop-item-spacer" />
         <button
           className="pizhu-pop-del"
-          title="删除批注"
+          title={t("Delete annotation")}
+          aria-label={t("Delete annotation")}
           onClick={(e: any) => remove(e, entry.blockId, entry.id)}
         >
           ✕
@@ -350,13 +478,17 @@ export default function AnnPopupButton() {
       <div className="pizhu-pop-blockref">{entry.preview}</div>
     </div>
   )
+
+  // 全局导航序号：全部文档模式下需要跨组连续编号以匹配 navList
+  let flatIndex = -1
+
   return (
     <>
       <span ref={btnRef} className="pizhu-pop-anchor">
         <Button
           variant="plain"
           onClick={() => setOpen(!open)}
-          title="批注"
+          title={t("Annotations")}
         >
           <span className="pizhu-headbar-btn">
             <svg
@@ -371,7 +503,7 @@ export default function AnnPopupButton() {
             >
               <path d="M2.5 11.4q1.25 -1.1 2.5 0t2.5 0t2.5 0t2.5 0" />
               <circle cx="12.6" cy="4.4" r="1.7" />
-            </svg> 批注
+            </svg> {t("Annotation")}
             {totalCount > 0 && (
               <span className="pizhu-pop-count">{totalCount}</span>
             )}
@@ -389,34 +521,70 @@ export default function AnnPopupButton() {
         escapeToClose
         className="pizhu-pop"
       >
-        <div className="pizhu-pop-inner">
+        <div className="pizhu-pop-inner" ref={innerRef} tabIndex={0} onKeyDown={onKeyDown}>
           <div className="pizhu-pop-header">
-            批注 <span className="pizhu-pop-count">{totalCount}</span>
+            {t("Annotations")} <span className="pizhu-pop-count">{totalCount}</span>
             <span className="pizhu-pop-item-spacer" />
+            <button
+              className="pizhu-pop-icon-btn"
+              onClick={copyAll}
+              disabled={totalCount === 0}
+              title={t("Copy all")}
+              aria-label={t("Copy all")}
+            >
+              ⧉
+            </button>
             <button
               className="pizhu-pop-scope"
               onClick={toggleScope}
-              title={scope === "doc" ? "切换：显示所有文档的批注" : "切换：只显示当前文档的批注"}
+              title={scope === "doc" ? t("Switch: show annotations in all documents") : t("Switch: show only the current document's annotations")}
             >
-              {scope === "doc" ? "仅当前文档" : "全部文档"}
+              {scope === "doc" ? t("Current document only") : t("All documents")}
+            </button>
+          </div>
+          <div className="pizhu-pop-toolbar">
+            <input
+              className="pizhu-pop-search"
+              type="search"
+              value={query}
+              placeholder={t("Search annotations…")}
+              onChange={(e: any) => setQuery(e.target.value)}
+            />
+            <button
+              className="pizhu-pop-sort"
+              title={t("Sort")}
+              onClick={() => setSort((SORT_ORDER[(SORT_ORDER.indexOf(sort as SortMode) + 1) % SORT_ORDER.length]))}
+            >
+              {t("Sort")}: {t(SORT_LABEL[sort as SortMode])}
             </button>
           </div>
           {totalCount === 0 ? (
             <div className="pizhu-pop-empty">
-              {scope === "doc" ? "当前文档还没有批注。" : "所有文档都还没有批注。"}
-              <br />
-              选中文字后按 Ctrl+Alt+A 添加。
+              {query
+                ? t("No matching annotations.")
+                : scope === "doc"
+                  ? t("No annotations in this document.")
+                  : t("No annotations in any document.")}
+              {!query && (
+                <>
+                  <br />
+                  {t("Add by selecting text and pressing Ctrl+Alt+A")}
+                </>
+              )}
             </div>
           ) : (
             <div className="pizhu-pop-list">
               {scope === "all"
-                ? groups.map((g) => (
+                ? filteredGroups.map((g) => (
                     <div key={g.rootId} className="pizhu-pop-page">
                       <div className="pizhu-pop-page-title">{g.title}</div>
-                      {g.entries.map((entry) => renderItem(entry))}
+                      {g.entries.map((entry) => {
+                        flatIndex++
+                        return renderItem(entry, flatIndex)
+                      })}
                     </div>
                   ))
-                : entries.map(toPopEntry).map((entry) => renderItem(entry))}
+                : docList.map((entry, i) => renderItem(entry, i))}
             </div>
           )}
         </div>

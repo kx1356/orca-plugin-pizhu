@@ -69,10 +69,39 @@ const SCHEMA = {
       { label: "全部文档", value: "all" },
     ],
   },
+  annColor: {
+    type: "color",
+    label: "批注颜色",
+    description: "批注波浪线与角标的默认颜色；留空跟随 Orca 主题强调色。单条批注可在批注卡内单独选色。",
+    defaultValue: "",
+  },
+  annLineStyle: {
+    type: "singleChoice",
+    label: "批注线型",
+    description: "批注波浪线下划线线型。",
+    defaultValue: "wavy",
+    choices: [
+      { label: "波浪线", value: "wavy" },
+      { label: "点线", value: "dotted" },
+      { label: "实线", value: "solid" },
+    ],
+  },
+}
+
+/** 把批注颜色/线型设置写入 body CSS 变量 */
+function applyAnnStyle() {
+  const s = ((orca.state as any).plugins?.[pluginName]?.settings ?? {}) as any
+  const body = document.body.style
+  const color = typeof s.annColor === "string" && s.annColor.trim() ? s.annColor.trim() : ""
+  if (color) body.setProperty("--pizhu-ann-color", color)
+  else body.removeProperty("--pizhu-ann-color")
+  const style = s.annLineStyle === "dotted" || s.annLineStyle === "solid" ? s.annLineStyle : "wavy"
+  body.setProperty("--pizhu-ann-style", style)
 }
 
 /** 根据设置开关，启用/停用可选功能模块（开关在设置里可随时切换） */
 function syncFeatureSwitches() {
+  applyAnnStyle()
   const s = (orca.state as any).plugins?.[pluginName]?.settings ?? {}
   const wantTabbar = s.tabBarEnabled !== false
   const wantTrash = s.trashEnabled !== false
@@ -220,6 +249,8 @@ export async function unload() {
     "--orca-tabbar-bottom",
     "--orca-tabbar-w",
     "--orca-tabbar-accent",
+    "--pizhu-ann-color",
+    "--pizhu-ann-style",
   ]) {
     bodyStyle.removeProperty(prop)
   }

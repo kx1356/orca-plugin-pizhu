@@ -1,16 +1,21 @@
-// 批注命令：选区添加、编辑、删除、打开汇总面板
-import type { Block, ContentFragment, DbId } from "./orca.d.ts"
+// 批注命令：选区添加（支持跨块）、编辑、删除（均可撤销）
+import type { Block, ContentFragment, CursorNodeData, DbId } from "./orca.d.ts"
 import {
+  ANN_COLORS,
   ANN_TYPE,
   genAnnId,
   isAnn,
+  rangeHasAnn,
   removeAnn,
   replaceRange,
+  siblingRange,
   updateAnn,
   extractRange,
   type AnnFragment,
+  type RangePos,
 } from "./ann"
 import { refreshDocCacheByBlock } from "./annCache"
+import { t } from "./libs/l10n"
 
 /** 保存 blocks content 的辅助函数 */
 async function setBlockContent(
@@ -97,8 +102,21 @@ function captureSelectionStyle(): Record<string, string> | undefined {
   }
 }
 
-/** 弹出批注输入（自绘 DOM 浮层，Promise 化），返回 null 表示取消 */
-function promptNote(initial: string, text: string): Promise<string | null> {
+/** 批注输入结果 */
+interface PromptResult {
+  note: string
+  color: string
+}
+
+/**
+ * 弹出批注输入（自绘 DOM 浮层，Promise 化），含颜色选择。
+ * 返回 null 表示取消。
+ */
+function promptNote(
+  initial: string,
+  text: string,
+  initialColor: string,
+): Promise<PromptResult | null> {
   return new Promise((resolve) => {
     const mask = document.createElement("div")
     mask.className = "pizhu-prompt-mask"
@@ -108,12 +126,32 @@ function promptNote(initial: string, text: string): Promise<string | null> {
 
     const label = document.createElement("div")
     label.className = "pizhu-prompt-label"
-    label.textContent = `批注：${text.slice(0, 30)}${text.length > 30 ? "…" : ""}`
+    label.textContent = `${t("Annotation")}: ${text.slice(0, 30)}${text.length > 30 ? "…" : ""}`
 
     const input = document.createElement("textarea")
     input.className = "pizhu-prompt-input"
     input.rows = 4
-    input.placeholder = "写下你的想法…"
+    input.placeholder = t("Write your thoughts…")
+
+    // 颜色选择
+    let color = initialColor
+    const colors = document.createElement("div")
+    colors.className = "pizhu-prompt-colors"
+    for (const c of ANN_COLORS) {
+      const sw = document.createElement("button")
+      sw.type = "button"
+      sw.className = "pizhu-color-swatch" + (c === "" ? " pizhu-color-auto" : "")
+      sw.style.background = c || "var(--pizhu-accent)"
+      sw.title = c || t("Follow theme")
+      sw.setAttribute("aria-label", c || t("Follow theme"))
+      if (c === color) sw.classList.add("pizhu-color-on")
+      sw.addEventListener("click", () => {
+        color = c
+        colors.querySelectorAll(".pizhu-color-swatch").forEach((el) => el.classList.remove("pizhu-color-on"))
+        sw.classList.add("pizhu-color-on")
+      })
+      colors.appendChild(sw)
+    }
 
     const actions = document.createElement("div")
     actions.className = "pizhu-prompt-actions"
@@ -121,25 +159,32 @@ function promptNote(initial: string, text: string): Promise<string | null> {
     const cancelBtn = document.createElement("button")
     cancelBtn.type = "button"
     cancelBtn.className = "pizhu-prompt-btn pizhu-prompt-cancel"
-    cancelBtn.textContent = "取消"
+    cancelBtn.textContent = t("Cancel")
 
     const okBtn = document.createElement("button")
     okBtn.type = "button"
     okBtn.className = "pizhu-prompt-btn pizhu-prompt-ok"
-    okBtn.textContent = "确定"
+    okBtn.textContent = t("OK")
 
     actions.append(cancelBtn, okBtn)
-    card.append(label, input, actions)
+    card.append(label, input, colors, actions)
     mask.appendChild(card)
     document.body.appendChild(mask)
 
     input.value = initial
 
-    const done = (value: string | null) => {
+    const done = (value: PromptResult | null) => {
       mask.remove()
       resolve(value)
     }
-    const ok = () => done(input.value.trim() || null)
+    const ok = () => {
+      const note = input.value.trim()
+      if (!note) {
+        orca.notify("warn", t("Annotation content cannot be empty"))
+        return
+      }
+      done({ note, color })
+    }
 
     okBtn.addEventListener("click", ok)
     cancelBtn.addEventListener("click", () => done(null))
@@ -159,6 +204,43 @@ function promptNote(initial: string, text: string): Promise<string | null> {
   })
 }
 
+/** 一个待批注的块区间 */
+interface Segment {
+  blockId: DbId
+  start: RangePos
+  end: RangePos
+}
+
+/**
+ * 根据选区计算要批注的一个或多个块区间。
+ * 同块直接返回单段；跨块时取同父下按文档顺序的兄弟块，首块取到末尾、末块从头取、中间块整块。
+ * 父块不同或无法确定顺序时返回 null（不支持）。
+ */
+function buildSegments(
+  blocks: Record<string | DbId, Block | undefined>,
+  start: CursorNodeData,
+  end: CursorNodeData,
+): Segment[] | null {
+  if (start.blockId === end.blockId) {
+    return [{ blockId: start.blockId as DbId, start, end }]
+  }
+  const ids = siblingRange(blocks, start.blockId as DbId, end.blockId as DbId)
+  if (ids == null) return null
+  const segs: Segment[] = []
+  for (const id of ids) {
+    const content = blocks[id]?.content ?? []
+    const last = Math.max(0, content.length - 1)
+    if (id === start.blockId) {
+      segs.push({ blockId: id, start: { ...start }, end: { index: last, offset: 1e9 } })
+    } else if (id === end.blockId) {
+      segs.push({ blockId: id, start: { index: 0, offset: 0 }, end: { ...end } })
+    } else {
+      segs.push({ blockId: id, start: { index: 0, offset: 0 }, end: { index: last, offset: 1e9 } })
+    }
+  }
+  return segs
+}
+
 /**
  * 注册所有批注相关命令。
  * @param pluginName 插件名（前缀）
@@ -169,26 +251,39 @@ export function registerCommands(pluginName: string) {
   if (orca.state.commands[addCmd] == null) {
     orca.commands.registerEditorCommand(
       addCmd,
-      async ([panelId, rootBlockId, cursor]): Promise<any> => {
+      async ([, , cursor]): Promise<any> => {
         if (cursor == null) {
-          orca.notify("warn", "请先选中要批注的文字")
+          orca.notify("warn", t("Please select text to annotate first"))
           return null
         }
         const { anchor, focus } = cursor
-        if (anchor.blockId !== focus.blockId) {
-          orca.notify("warn", "暂不支持跨块批注，请在一个块内选中文字")
+        const start = cursor.isForward ? anchor : focus
+        const end = cursor.isForward ? focus : anchor
+        const blocks = orca.state.blocks as Record<string | DbId, Block | undefined>
+
+        const segments = buildSegments(blocks, start, end)
+        if (segments == null) {
+          orca.notify("warn", t("Cross-parent annotation is not supported"))
           return null
         }
-        const blockId = anchor.blockId as DbId
-        const block = orca.state.blocks[blockId] as Block | undefined
-        if (block == null) return null
 
-        const content = block.content ?? []
-        const [start, end] = cursor.isForward ? [anchor, focus] : [focus, anchor]
+        // 阻止与已有批注重叠（避免嵌套批注）
+        for (const seg of segments) {
+          const content = blocks[seg.blockId]?.content ?? []
+          if (rangeHasAnn(content, seg.start, seg.end)) {
+            orca.notify("warn", t("Selection overlaps an existing annotation"))
+            return null
+          }
+        }
 
-        const { fragments, text } = extractRange(content, start, end)
-        if (!text) {
-          orca.notify("warn", "没有选中文字")
+        // 提示标签用整段选中文本
+        let labelText = ""
+        for (const seg of segments) {
+          const content = blocks[seg.blockId]?.content ?? []
+          labelText += extractRange(content, seg.start, seg.end).text
+        }
+        if (!labelText) {
+          orca.notify("warn", t("No text selected"))
           return null
         }
 
@@ -196,75 +291,124 @@ export function registerCommands(pluginName: string) {
         // 浮层弹出会抢走选区，之后再读 getSelection 只能拿到默认样式。
         const domStyle = captureSelectionStyle()
 
-        const note = await promptNote("", text)
-        if (note == null) return null // 用户取消
+        const res = await promptNote("", labelText, "")
+        if (res == null) return null // 用户取消
 
-        const ann: AnnFragment = {
-          t: ANN_TYPE,
-          v: text,
-          id: genAnnId(),
-          note,
-          texts: fragments,
-          created: Date.now(),
-          ...(domStyle ? { domStyle } : {}),
-        }
-        const newContent = replaceRange(content, start, end, ann)
-        await setBlockContent(cursor, blockId, newContent)
-        syncBlockContent(blockId, newContent)
-        refreshDocCacheByBlock(blockId)
+        // 记录所有参与块的旧内容用于撤销
+        const oldContents = segments.map((seg) => ({
+          blockId: seg.blockId,
+          content: (blocks[seg.blockId]?.content ?? []).slice(),
+        }))
 
-        // 返回撤销数据：恢复旧 content
-        return { ret: null, undoArgs: { blockId, oldContent: content } }
+        for (const seg of segments) {
+          const old = oldContents.find((o) => o.blockId === seg.blockId)
+          if (old == null) continue
+          const { fragments, text } = extractRange(old.content, seg.start, seg.end)
+          if (!text) continue
+          const ann: AnnFragment = {
+            t: ANN_TYPE,
+            v: text,
+            id: genAnnId(),
+            note: res.note,
+            texts: fragments,
+            created: Date.now(),
+            ...(res.color ? { color: res.color } : {}),
+            ...(domStyle ? { domStyle } : {}),
+          }
+          const newContent = replaceRange(old.content, seg.start, seg.end, ann)
+          await setBlockContent(cursor, seg.blockId, newContent)
+          syncBlockContent(seg.blockId, newContent)
+          refreshDocCacheByBlock(seg.blockId)
+        }
+
+        // 返回撤销数据：恢复所有块的旧 content
+        return { ret: null, undoArgs: { contents: oldContents } }
       },
-      async (panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
-        if (undoArgs) {
-          await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
-          syncBlockContent(undoArgs.blockId, undoArgs.oldContent)
-          refreshDocCacheByBlock(undoArgs.blockId)
+      async (
+        _panelId: string,
+        undoArgs: { contents: { blockId: DbId; content: ContentFragment[] }[] },
+      ) => {
+        if (undoArgs == null) return
+        for (const { blockId, content } of undoArgs.contents) {
+          await setBlockContent(null, blockId, content)
+          syncBlockContent(blockId, content)
+          refreshDocCacheByBlock(blockId)
         }
       },
-      { label: "添加批注" },
+      { label: t("Add annotation") },
     )
   }
 
-  // ============ 编辑批注 ============
+  // ============ 编辑批注（编辑器命令，支持撤销） ============
   const editCmd = `${pluginName}.ann.edit`
   if (orca.state.commands[editCmd] == null) {
-    orca.commands.registerCommand(
+    orca.commands.registerEditorCommand(
       editCmd,
-      async (blockId: DbId, annId: string, note: string) => {
+      async (_, blockId: DbId, annId: string, note: string, color?: string): Promise<any> => {
         const block = orca.state.blocks[blockId] as Block | undefined
-        if (block == null) return
+        if (block == null) return null
         const content = block.content ?? []
-        if (findAnn(content, annId) == null) return
-        const newContent = updateAnn(content, annId, { note, modified: Date.now() })
+        if (findAnn(content, annId) == null) return null
+        const oldContent = content.slice()
+        const patch: Partial<Pick<AnnFragment, "note" | "modified" | "color">> = {
+          note,
+          modified: Date.now(),
+        }
+        if (color !== undefined) patch.color = color
+        const newContent = updateAnn(content, annId, patch)
         await setBlockContent(null, blockId, newContent)
         syncBlockContent(blockId, newContent)
         refreshDocCacheByBlock(blockId)
+        return { ret: null, undoArgs: { blockId, oldContent } }
       },
-      "编辑批注",
+      async (_panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
+        if (undoArgs == null) return
+        await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
+        syncBlockContent(undoArgs.blockId, undoArgs.oldContent)
+        refreshDocCacheByBlock(undoArgs.blockId)
+      },
+      { label: t("Edit annotation"), hasArgs: true, noFocusNeeded: true },
     )
   }
 
-  // ============ 删除批注 ============
+  // ============ 删除批注（编辑器命令，支持撤销） ============
   const removeCmd = `${pluginName}.ann.remove`
   if (orca.state.commands[removeCmd] == null) {
-    orca.commands.registerCommand(
+    orca.commands.registerEditorCommand(
       removeCmd,
-      async (blockId: DbId, annId: string) => {
+      async (_, blockId: DbId, annId: string): Promise<any> => {
         const block = orca.state.blocks[blockId] as Block | undefined
-        if (block == null) return
+        if (block == null) return null
         const content = block.content ?? []
-        if (findAnn(content, annId) == null) return
+        if (findAnn(content, annId) == null) return null
+        const oldContent = content.slice()
         const newContent = removeAnn(content, annId)
         await setBlockContent(null, blockId, newContent)
         syncBlockContent(blockId, newContent)
         refreshDocCacheByBlock(blockId)
+        return { ret: null, undoArgs: { blockId, oldContent } }
       },
-      "删除批注",
+      async (_panelId: string, undoArgs: { blockId: DbId; oldContent: ContentFragment[] }) => {
+        if (undoArgs == null) return
+        await setBlockContent(null, undoArgs.blockId, undoArgs.oldContent)
+        syncBlockContent(undoArgs.blockId, undoArgs.oldContent)
+        refreshDocCacheByBlock(undoArgs.blockId)
+      },
+      { label: t("Delete annotation"), hasArgs: true, noFocusNeeded: true },
     )
   }
+}
 
+/**
+ * 调用批注命令：优先走编辑器命令（进入撤销栈），失败时退回普通命令。
+ * 供批注卡/下拉卡等编辑器外部的 UI 调用。
+ */
+export async function invokeAnnCommand(id: string, ...args: any[]): Promise<any> {
+  try {
+    return await orca.commands.invokeEditorCommand(id, null, ...args)
+  } catch {
+    return await orca.commands.invokeCommand(id, ...args)
+  }
 }
 
 /** 反注册批注命令 */
@@ -280,10 +424,10 @@ export function unregisterCommands(pluginName: string) {
     } catch {
       /* ignore */
     }
-  }
-  try {
-    orca.commands.unregisterEditorCommand(`${pluginName}.ann.add`)
-  } catch {
-    /* ignore */
+    try {
+      orca.commands.unregisterEditorCommand(id)
+    } catch {
+      /* ignore */
+    }
   }
 }

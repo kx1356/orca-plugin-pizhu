@@ -1,7 +1,9 @@
 // 行内渲染器：波浪线 + 角标数字，悬停浮窗预览，点击弹出批注卡
 import type { Block, ContentFragment, DbId } from "./orca.d.ts"
-import { buildGlobalOrdinalMap, isAnn, rootOf } from "./ann"
+import { ANN_COLORS, buildGlobalOrdinalMap, isAnn, rootOf } from "./ann"
+import { invokeAnnCommand } from "./commands"
 import { annCard, closeAnnCard, openAnnCard } from "./store"
+import { t } from "./libs/l10n"
 
 const { useState, useRef, useEffect } = window.React as any
 const { useSnapshot } = window.Valtio as any
@@ -35,24 +37,21 @@ function globalOrdinalMapFor(
 }
 
 /**
- * 行内渲染器 props：blockId 所属块、data 当前 fragment、index 在块 content 中的位置。
+ * 行内渲染器 props：blockId 所属块、data 当前 fragment。
  * 注意：data 可能不是最新快照，批注卡编辑后由 useSnapshot 订阅刷新。
  */
 export default function AnnotationInline({
   blockId,
   data,
-  index,
 }: {
   blockId: DbId | string
   data: ContentFragment
-  index: number
 }) {
   const { blocks } = useSnapshot(orca.state)
   const annCardSnap = useSnapshot(annCard)
-  const block = blocks[blockId] as Block | undefined
   const ann = isAnn(data) ? data : null
 
-  // 页面范围的全局批注序号（跨块递增）：遍历 root 下所有块建立 map
+  // 页面范围的全局批注序号（跨块递增）：遍历 root 下所有块建立 map（按快照缓存）
   const ordinal = (() => {
     if (!ann) return 0
     const rootId = rootOf(blockId as any, blocks)
@@ -116,7 +115,7 @@ export default function AnnotationInline({
     openAnnCard(blockId as DbId, ann.id, rect.left, rect.bottom + 6)
   }
 
-  // 还原批注创建时的原文样式（字号/颜色/粗斜体），防御性解析
+  // 还原批注创建时的原文样式（字号/颜色/粗斜体），并叠加批注自定义颜色
   const textStyle: React.CSSProperties = {}
   try {
     if (ann.domStyle) {
@@ -125,9 +124,13 @@ export default function AnnotationInline({
       if (ann.domStyle.fontWeight) textStyle.fontWeight = ann.domStyle.fontWeight
       if (ann.domStyle.fontStyle) textStyle.fontStyle = ann.domStyle.fontStyle
     }
+    if (ann.color) textStyle.textDecorationColor = ann.color
   } catch {
     /* 忽略样式解析异常，不影响批注功能 */
   }
+  const badgeStyle: React.CSSProperties | undefined = ann.color
+    ? { background: ann.color }
+    : undefined
 
   return (
     <>
@@ -140,7 +143,7 @@ export default function AnnotationInline({
         onMouseLeave={scheduleHide}
       >
         <span className="pizhu-ann-text">{ann.v}</span>
-        <sup className="pizhu-ann-badge">{ordinal}</sup>
+        <sup className="pizhu-ann-badge" style={badgeStyle}>{ordinal}</sup>
       </span>
       {previewPos != null &&
         createPortal(
@@ -163,20 +166,21 @@ export default function AnnotationInline({
   )
 }
 
-/** 批注卡浮层：显示原文、编辑批注、保存/删除 */
+/** 批注卡浮层：显示原文、编辑批注、选择颜色、保存/删除 */
 export function AnnotationCard() {
   const card = useSnapshot(annCard)
   const { blocks } = useSnapshot(orca.state)
   const [draft, setDraft] = useState("")
+  const [color, setColor] = useState("")
   const taRef = useRef(null) as any
 
   const block = card.blockId == null ? undefined : (blocks[card.blockId] as Block | undefined)
   const ann = (block?.content ?? []).find((f) => isAnn(f) && f.id === card.annId)
 
-  // 打开/切换批注时用该批注内容初始化草稿（受控输入，允许用户清空后重新输入）；
-  // 卡片常驻挂载，state 不随 annId 重置，因此仅依赖 annId/visible，编辑中不被 blocks 变化覆盖。
+  // 打开/切换批注时用该批注内容与颜色初始化草稿（卡片常驻挂载，state 不随 annId 重置）
   useEffect(() => {
     setDraft(ann?.note ?? "")
+    setColor(ann?.color ?? "")
   }, [card.annId, card.visible])
 
   // 批注已不存在（可能被删除）时自动关闭。
@@ -227,24 +231,35 @@ export function AnnotationCard() {
 
   const save = async () => {
     if (draft.trim() === "") {
-      orca.notify("warn", "批注内容不能为空")
+      orca.notify("warn", t("Annotation content cannot be empty"))
       return
     }
-    await orca.commands.invokeCommand(
-      `${pluginPrefix}.ann.edit`,
-      card.blockId,
-      card.annId,
-      draft.trim(),
-    )
+    try {
+      await invokeAnnCommand(
+        `${pluginPrefix}.ann.edit`,
+        card.blockId,
+        card.annId,
+        draft.trim(),
+        color,
+      )
+    } catch (e: any) {
+      orca.notify?.("error", `${t("Failed to save annotation")}: ${e?.message ?? e}`)
+      return
+    }
     closeAnnCard()
   }
 
   const remove = async () => {
-    await orca.commands.invokeCommand(
-      `${pluginPrefix}.ann.remove`,
-      card.blockId,
-      card.annId,
-    )
+    try {
+      await invokeAnnCommand(
+        `${pluginPrefix}.ann.remove`,
+        card.blockId,
+        card.annId,
+      )
+    } catch (e: any) {
+      orca.notify?.("error", `${t("Failed to delete annotation")}: ${e?.message ?? e}`)
+      return
+    }
     closeAnnCard()
   }
 
@@ -266,30 +281,47 @@ export function AnnotationCard() {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="pizhu-card-scroll">
-        <div className="pizhu-card-original" title="原文">
+        <div className="pizhu-card-original" title={t("Original text")}>
           {ann.v}
         </div>
         <textarea
           ref={taRef}
           className="pizhu-card-input"
           rows={1}
-          placeholder="写下批注…"
+          placeholder={t("Write a note…")}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onInput={autoResize}
           autoFocus
         />
+        <div className="pizhu-prompt-colors pizhu-card-colors">
+          {ANN_COLORS.map((c) => (
+            <button
+              key={c || "auto"}
+              type="button"
+              className={
+                "pizhu-color-swatch" +
+                (c === "" ? " pizhu-color-auto" : "") +
+                (c === color ? " pizhu-color-on" : "")
+              }
+              style={{ background: c || "var(--pizhu-accent)" }}
+              title={c || t("Follow theme")}
+              aria-label={c || t("Follow theme")}
+              onClick={() => setColor(c)}
+            />
+          ))}
+        </div>
       </div>
       <div className="pizhu-card-actions">
         <button className="pizhu-card-btn pizhu-card-btn-danger" onClick={remove}>
-          删除
+          {t("Delete")}
         </button>
         <span className="pizhu-card-spacer" />
         <button className="pizhu-card-btn" onClick={closeAnnCard}>
-          取消
+          {t("Cancel")}
         </button>
         <button className="pizhu-card-btn pizhu-card-btn-primary" onClick={save}>
-          保存
+          {t("Save")}
         </button>
       </div>
     </div>

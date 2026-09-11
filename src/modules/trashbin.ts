@@ -3,6 +3,7 @@
 // 提炼自 orca-neo 主题 v2.0.0
 // 拦截删除操作，自动保存页面快照，可随时恢复或彻底删除
 // ============================================================
+import { t } from "../libs/l10n";
 
 let pluginName = "";
 
@@ -62,7 +63,7 @@ function installHook() {
       } catch (e: any) {
         console.error("[TRASH] 拦截异常，已取消删除以保数据：", e);
         try {
-          orca.notify?.("error", `回收站：删除已被拦截（${e?.message ?? e}），页面未删除以保数据。可重试或检查存储。`, { title: "回收站" });
+          orca.notify?.("error", t("Delete was intercepted to protect your data (${msg}). The page was not deleted.", { msg: String(e?.message ?? e) }), { title: t("Trash bin") });
         } catch { /* ignore */ }
         return [];
       }
@@ -102,7 +103,7 @@ async function interceptDelete(args: any[]) {
     }
   } catch (e: any) {
     console.error("[TRASH] 快照阶段失败，已取消删除：", e);
-    try { orca.notify?.("error", `回收站：读取快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Failed to read snapshot; the page was not deleted (${msg}).", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); } catch { /* ignore */ }
     return [];
   }
   // 阶段二：全部快照就绪后才写入文件与索引；任一写失败则回滚已写文件并取消删除
@@ -135,12 +136,12 @@ async function interceptDelete(args: any[]) {
     }
     await writeIndex(b, repo, merged);
     for (const w of writes) {
-      try { orca.notify?.("success", `已移入回收站：${w.title}`, { title: "回收站" }); } catch { /* ignore */ }
+      try { orca.notify?.("success", t("Moved to trash: ${title}", { title: String(w.title) }), { title: t("Trash bin") }); } catch { /* ignore */ }
     }
   } catch (e: any) {
     for (const w of writes) { try { await b("remove-plugin-file", pluginName, w.fileName); } catch { /* ignore */ } }
     console.error("[TRASH] 快照写入失败，已回滚并取消删除：", e);
-    try { orca.notify?.("error", `回收站：保存快照失败，页面未删除（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Failed to save snapshot; the page was not deleted (${msg}).", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); } catch { /* ignore */ }
     return [];
   }
   return b("delete-blocks", ...args);
@@ -227,11 +228,11 @@ async function restorePage(pageId: any) {
     record = JSON.parse(String(raw ?? ""));
   } catch (e: any) {
     console.error("[TRASH] 读取快照失败：", e);
-    try { orca.notify?.("error", `恢复失败：快照文件不可读（${e?.message ?? e}）`, { title: "回收站" }); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Restore failed: snapshot file unreadable (${msg}).", { msg: String(e?.message ?? e) }), { title: t("Trash bin") }); } catch { /* ignore */ }
     return;
   }
   if (record == null || typeof record !== "object" || record.tree == null) {
-    try { orca.notify?.("error", "恢复失败：快照内容损坏，请先彻底删除该条目", { title: "回收站" }); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Restore failed: snapshot is corrupted; delete this entry permanently first."), { title: t("Trash bin") }); } catch { /* ignore */ }
     return;
   }
   await rebuildTree(b, record.tree, record.originalParent ?? null, record.originalLeft ?? null);
@@ -239,7 +240,7 @@ async function restorePage(pageId: any) {
   const list = await readIndex(b, repo);
   await writeIndex(b, repo, list.filter((e: any) => e.pageId !== pageId));
   try {
-    orca.notify?.("success", `已恢复：${record?.tree ? titleOf(record.tree) : pageId}`, { title: "回收站" });
+    orca.notify?.("success", t("Restored: ${title}", { title: String(record?.tree ? titleOf(record.tree) : pageId) }), { title: t("Trash bin") });
   } catch { /* ignore */ }
 }
 
@@ -358,9 +359,9 @@ function stopCleanupTimer() {
 // ============================================================
 
 function titleOf(node: any) {
-  if (!node) return "(无标题)";
-  const t = firstText(node);
-  return t ? t.slice(0, 80) : "(无标题)";
+  if (!node) return t("(Untitled)");
+  const txt = firstText(node);
+  return txt ? txt.slice(0, 80) : t("(Untitled)");
 }
 
 function firstText(node: any): string {
@@ -373,14 +374,14 @@ function firstText(node: any): string {
   if (typeof node.text === "string" && node.text.trim()) return node.text.trim();
   if (Array.isArray(node.kids)) {
     for (const k of node.kids) {
-      const t = firstText(k);
-      if (t) return t;
+      const txt = firstText(k);
+      if (txt) return txt;
     }
   }
   if (Array.isArray(node.children)) {
     for (const k of node.children) {
-      const t = firstText(k);
-      if (t) return t;
+      const txt = firstText(k);
+      if (txt) return txt;
     }
   }
   return "";
@@ -406,14 +407,17 @@ function formatTime(ts: any) {
 
 function remainingText(ms: number) {
   const days = ms / 864e5;
-  return days <= 0 ? "今天过期" : days < 1 ? "剩不到 1 天" : `剩 ${Math.ceil(days)} 天`;
+  return days <= 0 ? t("Expires today") : days < 1 ? t("Less than 1 day") : t("Remaining ${days} days", { days: String(Math.ceil(days)) });
 }
 
 function TrashDialog({ onClose }: any) {
   const [items, setItems] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [selected, setSelected] = React.useState(() => new Set());
+  const [sort, setSort] = React.useState("deletedDesc");
   const refresh = React.useCallback(() => {
-    trashList().then(setItems).catch(() => setItems([]));
+    trashList().then((list: any) => { setItems(list); setSelected(new Set()); }).catch(() => setItems([]));
   }, []);
   React.useEffect(() => { refresh(); }, [refresh]);
   React.useEffect(() => {
@@ -422,67 +426,125 @@ function TrashDialog({ onClose }: any) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function restore(id: any) {
+  const sorted = React.useMemo(() => {
+    const list = [...items];
+    if (sort === "remainingAsc") list.sort((a: any, b: any) => a.remainingMs - b.remainingMs);
+    else list.sort((a: any, b: any) => b.deletedAt - a.deletedAt);
+    return list;
+  }, [items, sort]);
+  const visible = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? sorted.filter((it: any) => String(it.title || "").toLowerCase().includes(q)) : sorted;
+  }, [sorted, query]);
+
+  async function runOne(fn: any, id: any, errPrefix: string) {
     setBusy(true);
-    try { await restorePage(id); refresh(); }
-    catch (e: any) { orca.notify?.("error", `恢复失败：${e?.message ?? e}`, { title: "回收站" }); }
+    try { await fn(id); refresh(); }
+    catch (e: any) { orca.notify?.("error", `${errPrefix}: ${e?.message ?? e}`, { title: t("Trash bin") }); }
     finally { setBusy(false); }
   }
-  async function purge(id: any) {
+  const restore = (id: any) => runOne(restorePage, id, t("Restore failed"));
+  const purge = (id: any) => runOne(purgePage, id, t("Delete failed"));
+
+  async function restoreSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
     setBusy(true);
-    try { await purgePage(id); refresh(); }
-    catch (e: any) { orca.notify?.("error", `删除失败：${e?.message ?? e}`, { title: "回收站" }); }
+    try {
+      for (const id of ids) await restorePage(id);
+      refresh();
+    } catch (e: any) { orca.notify?.("error", `${t("Restore failed")}: ${e?.message ?? e}`, { title: t("Trash bin") }); }
+    finally { setBusy(false); }
+  }
+  async function purgeSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!window.confirm(t("Permanently delete ${count} selected items?", { count: String(ids.length) }))) return;
+    setBusy(true);
+    try {
+      for (const id of ids) await purgePage(id);
+      refresh();
+    } catch (e: any) { orca.notify?.("error", `${t("Delete failed")}: ${e?.message ?? e}`, { title: t("Trash bin") }); }
     finally { setBusy(false); }
   }
   async function purgeAllItems() {
-    if (items.length !== 0 && window.confirm(`确定清空回收站？共 ${items.length} 项将被永久删除，不可恢复。`)) {
+    if (items.length !== 0 && window.confirm(t("Empty the trash bin? ${count} items will be permanently deleted.", { count: String(items.length) }))) {
       setBusy(true);
       try { await purgeAll(); refresh(); }
-      catch (e: any) { orca.notify?.("error", `清空失败：${e?.message ?? e}`, { title: "回收站" }); }
+      catch (e: any) { orca.notify?.("error", `${t("Empty failed")}: ${e?.message ?? e}`, { title: t("Trash bin") }); }
       finally { setBusy(false); }
     }
   }
 
-  const [sort, setSort] = React.useState("deletedDesc");
-  const sorted = React.useMemo(() => {
-    const list = [...items];
-    if (sort === "remainingAsc") list.sort((a, b) => a.remainingMs - b.remainingMs);
-    else list.sort((a, b) => b.deletedAt - a.deletedAt);
-    return list;
-  }, [items, sort]);
+  const allVisibleSelected = visible.length > 0 && visible.every((it: any) => selected.has(it.pageId));
+  function toggleAll() {
+    const next = new Set(selected);
+    if (allVisibleSelected) visible.forEach((it: any) => next.delete(it.pageId));
+    else visible.forEach((it: any) => next.add(it.pageId));
+    setSelected(next);
+  }
+  function toggleOne(id: any) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  }
 
   return React.createElement("div", { className: "orca-trash-backdrop", onMouseDown: onClose },
     React.createElement("div", { className: "orca-trash-pop", onMouseDown: (e: any) => e.stopPropagation() },
       React.createElement("div", { className: "orca-trash-head" },
-        React.createElement("span", null, "回收站"),
+        React.createElement("span", null, t("Trash bin")),
         React.createElement("div", { className: "orca-trash-head-tools" },
           React.createElement("button", {
             className: "orca-trash-sort",
-            title: "切换排序方式",
+            title: t("Toggle sort"),
             onClick: () => setSort((s: string) => s === "deletedDesc" ? "remainingAsc" : "deletedDesc")
-          }, sort === "deletedDesc" ? "删除时间倒序 ↓" : "剩余时长 ↑"),
+          }, sort === "deletedDesc" ? t("Sort by deletion time ↓") : t("Sort by remaining time ↑")),
           React.createElement("span", { className: "orca-trash-close", onClick: onClose }, "✕")
         )
       ),
+      React.createElement("div", { className: "orca-trash-toolbar" },
+        React.createElement("input", {
+          className: "orca-trash-search",
+          type: "search",
+          value: query,
+          placeholder: t("Search trash bin…"),
+          onChange: (e: any) => setQuery(e.target.value)
+        }),
+        React.createElement("button", {
+          className: "orca-trash-act",
+          disabled: busy || visible.length === 0,
+          onClick: toggleAll
+        }, allVisibleSelected ? t("Unselect all") : t("Select all"))
+      ),
       React.createElement("div", { className: "orca-trash-body" },
-        sorted.length === 0 && React.createElement("div", { className: "orca-trash-empty" }, "回收站为空"),
-        sorted.map((item: any) =>
-          React.createElement("div", { className: "orca-trash-row", key: item.pageId },
+        visible.length === 0 && React.createElement("div", { className: "orca-trash-empty" }, query ? t("No matching items.") : t("Trash bin is empty")),
+        visible.map((item: any) =>
+          React.createElement("div", { className: "orca-trash-row" + (selected.has(item.pageId) ? " orca-trash-row-on" : ""), key: item.pageId },
+            React.createElement("input", {
+              type: "checkbox",
+              className: "orca-trash-check",
+              checked: selected.has(item.pageId),
+              onChange: () => toggleOne(item.pageId)
+            }),
             React.createElement("div", { className: "orca-trash-meta" },
-              React.createElement("div", { className: "orca-trash-title", title: item.title }, item.title || "(无标题)"),
+              React.createElement("div", { className: "orca-trash-title", title: item.title }, item.title || t("(Untitled)")),
               React.createElement("div", { className: "orca-trash-sub" },
                 formatTime(item.deletedAt), " · ", remainingText(item.remainingMs)
               )
             ),
             React.createElement("div", { className: "orca-trash-actions" },
-              React.createElement("button", { className: "orca-trash-act", disabled: busy, onClick: () => restore(item.pageId) }, "恢复"),
-              React.createElement("button", { className: "orca-trash-act danger", disabled: busy, onClick: () => purge(item.pageId) }, "彻底删除")
+              React.createElement("button", { className: "orca-trash-act", disabled: busy, onClick: () => restore(item.pageId) }, t("Restore")),
+              React.createElement("button", { className: "orca-trash-act danger", disabled: busy, onClick: () => purge(item.pageId) }, t("Delete permanently"))
             )
           )
         )
       ),
       React.createElement("div", { className: "orca-trash-foot" },
-        React.createElement("button", { className: "orca-trash-act danger", disabled: busy || sorted.length === 0, onClick: purgeAllItems }, "清空回收站")
+        React.createElement("span", { className: "orca-trash-selinfo" }, selected.size > 0 ? t("Selected ${count}", { count: String(selected.size) }) : ""),
+        React.createElement("button", { className: "orca-trash-act", disabled: busy || selected.size === 0, onClick: restoreSelected }, t("Restore selected")),
+        React.createElement("button", { className: "orca-trash-act danger", disabled: busy || selected.size === 0, onClick: purgeSelected }, t("Delete selected")),
+        React.createElement("span", { className: "orca-trash-spacer" }),
+        React.createElement("button", { className: "orca-trash-act danger", disabled: busy || sorted.length === 0, onClick: purgeAllItems }, t("Empty trash bin"))
       )
     )
   );
@@ -567,7 +629,7 @@ export async function enable(name: string) {
     console.log(`${name} loaded.`);
   } catch (e: any) {
     console.error(`[TRASH] ${name} 加载失败：`, e);
-    try { orca.notify?.("error", `回收站插件加载失败：${e?.message ?? e}`); } catch { /* ignore */ }
+    try { orca.notify?.("error", t("Trash bin failed to load: ${msg}", { msg: String(e?.message ?? e) })); } catch { /* ignore */ }
   }
 }
 

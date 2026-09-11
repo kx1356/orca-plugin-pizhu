@@ -19,12 +19,26 @@ function Write-Step {
   Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+# 本机 PowerShell 执行策略会拦截 npm.ps1，统一走 .cmd / 直接调用本地二进制
+$Tsc = Join-Path $repoRoot "node_modules\.bin\tsc.cmd"
+$Vite = Join-Path $repoRoot "node_modules\.bin\vite.cmd"
+
 function Invoke-MarketplaceValidation {
   Write-Step "Validating marketplace metadata"
   node scripts/validate-marketplace-package.mjs
   if ($LASTEXITCODE -ne 0) {
     throw "Marketplace metadata validation failed."
   }
+}
+
+function Invoke-Build {
+  Write-Step "Type-checking"
+  & $Tsc --noEmit -p tsconfig.json
+  if ($LASTEXITCODE -ne 0) { throw "Type check failed." }
+
+  Write-Step "Building plugin"
+  & $Vite build
+  if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 }
 
 function New-LocalReleaseZip {
@@ -62,10 +76,6 @@ function New-LocalReleaseZip {
     throw "icon.png or icon.svg not found at repository root."
   }
 
-  if (Test-Path (Join-Path $pluginRoot "package-lock.json")) {
-    throw "package-lock.json must not be included in the release archive root."
-  }
-
   if (-not (Test-Path (Join-Path $pluginRoot "LICENSE"))) {
     throw "LICENSE must be included in the release archive root."
   }
@@ -98,11 +108,7 @@ if (-not $DryRun) {
 Invoke-MarketplaceValidation
 
 if (-not $SkipBuild) {
-  Write-Step "Building plugin"
-  npm run build
-  if ($LASTEXITCODE -ne 0) {
-    throw "Build failed."
-  }
+  Invoke-Build
 }
 
 if ($DryRun) {
@@ -121,7 +127,7 @@ if ($DryRun) {
 }
 
 Write-Step "Bumping version ($Type)"
-$tag = (npm version $Type --tag-version-prefix v).Trim()
+$tag = (npm.cmd version $Type --tag-version-prefix v).Trim()
 if ($LASTEXITCODE -ne 0) {
   throw "npm version failed."
 }
@@ -129,26 +135,34 @@ if (-not $tag.StartsWith("v")) {
   throw "Unexpected tag '$tag'. Expected a tag prefixed with 'v'."
 }
 
+$newVersion = (node -p "require('./package.json').version").Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($newVersion)) {
+  throw "Failed to read bumped package.json version."
+}
+
+Write-Step "Packaging release zip"
+$archivePath = New-LocalReleaseZip -Version $newVersion
+
 if (-not $SkipPush) {
   Write-Step "Pushing commit to origin/$Branch"
   git push origin $Branch
-  if ($LASTEXITCODE -ne 0) {
-    throw "Push branch failed."
-  }
+  if ($LASTEXITCODE -ne 0) { throw "Push branch failed." }
 
   Write-Step "Pushing tag $tag"
   git push origin $tag
-  if ($LASTEXITCODE -ne 0) {
-    throw "Push tag failed."
-  }
+  if ($LASTEXITCODE -ne 0) { throw "Push tag failed." }
+
+  Write-Step "Creating GitHub Release $tag"
+  gh release create $tag $archivePath --title $tag --generate-notes --latest
+  if ($LASTEXITCODE -ne 0) { throw "gh release create failed." }
 }
 
 Write-Host ""
-Write-Host "Release prepared: $tag" -ForegroundColor Green
+Write-Host "Release published: $tag" -ForegroundColor Green
 if ($SkipPush) {
   Write-Host "Tag created locally. Push manually with:" -ForegroundColor Yellow
   Write-Host "git push origin $Branch" -ForegroundColor Yellow
   Write-Host "git push origin $tag" -ForegroundColor Yellow
 } else {
-  Write-Host "GitHub Actions will now build and create the Release for $tag." -ForegroundColor Green
+  Write-Host "Next: update the marketplace via a PR to sethyuan/awesome-orcanote (see RELEASE.md)." -ForegroundColor Green
 }

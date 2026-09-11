@@ -13,7 +13,6 @@ export const PIZHU_CSS = `
   --pizhu-text-3: var(--orca-color-text-3, #979797);
   --pizhu-bg-1: var(--orca-color-bg-1, #ffffff);
   --pizhu-bg-2: var(--orca-color-bg-2, #fafafa);
-  --pizhu-bg-3: var(--orca-color-bg-3, #f0f0f0);
   --pizhu-stroke: var(--orca-color-border, rgba(0, 0, 0, 0.08));
   --pizhu-stroke-strong: var(--orca-color-separator, rgba(0, 0, 0, 0.10));
   --pizhu-danger: #C42B1C;
@@ -32,8 +31,8 @@ export const PIZHU_CSS = `
 
 /* ===== 行内批注标记：波浪线 + Fluent 圆形角标 ===== */
 .pizhu-ann {
-  text-decoration: underline wavy;
-  text-decoration-color: var(--orca-color-accent, #0F6CBD);
+  text-decoration: underline var(--pizhu-ann-style, wavy);
+  text-decoration-color: var(--pizhu-ann-color, var(--pizhu-accent));
   text-underline-offset: 3px;
   text-decoration-thickness: 1.5px;
   cursor: pointer;
@@ -117,8 +116,8 @@ export const PIZHU_CSS = `
 .pizhu-card-original {
   font-size: var(--orca-fontsize, 14px);
   color: var(--pizhu-text-2);
-  text-decoration: underline wavy;
-  text-decoration-color: rgba(255, 170, 60, 0.85);
+  text-decoration: underline var(--pizhu-ann-style, wavy);
+  text-decoration-color: var(--pizhu-ann-color, var(--pizhu-accent));
   text-underline-offset: 3px;
   padding: 6px 10px;
   margin-bottom: 10px;
@@ -244,8 +243,8 @@ export const PIZHU_CSS = `
   font-size: 14px;
   font-weight: 600;
   color: var(--pizhu-text-1);
-  text-decoration: underline wavy;
-  text-decoration-color: rgba(255, 170, 60, 0.85);
+  text-decoration: underline var(--pizhu-ann-style, wavy);
+  text-decoration-color: var(--pizhu-ann-color, var(--pizhu-accent));
   text-underline-offset: 3px;
   margin-bottom: 12px;
   word-break: break-all;
@@ -435,10 +434,10 @@ export const PIZHU_CSS = `
   font-variant-numeric: tabular-nums;
 }
 .pizhu-pop-original {
-  text-decoration: underline wavy;
-  text-decoration-color: var(--orca-color-accent, #0F6CBD);
+  text-decoration: underline var(--pizhu-ann-style, wavy);
+  text-decoration-color: var(--pizhu-ann-color, var(--pizhu-accent));
   text-underline-offset: 3px;
-  color: var(--orca-color-accent, #0F6CBD);
+  color: var(--pizhu-ann-color, var(--pizhu-accent));
 }
 .pizhu-pop-note {
   margin-top: 4px;
@@ -484,5 +483,111 @@ export const PIZHU_CSS = `
   outline: 2px solid var(--pizhu-accent);
   outline-offset: 1px;
   opacity: 1;
+}
+.pizhu-pop-color {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pizhu-text-1) 20%, transparent);
+}
+.pizhu-pop-item-active {
+  background: color-mix(in srgb, var(--pizhu-accent) 10%, transparent);
+}
+.pizhu-pop-item:focus-visible {
+  outline: 2px solid var(--pizhu-accent);
+  outline-offset: -2px;
+}
+.pizhu-pop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 8px;
+  flex: none;
+}
+.pizhu-pop-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--pizhu-stroke-strong);
+  border-radius: var(--pizhu-radius-c);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--pizhu-font);
+  background: var(--pizhu-bg-1);
+  color: var(--pizhu-text-1);
+}
+.pizhu-pop-search:focus {
+  outline: none;
+  border-color: var(--pizhu-accent);
+  box-shadow: inset 0 0 0 1px var(--pizhu-accent);
+}
+.pizhu-pop-sort {
+  flex: none;
+  border: 1px solid var(--pizhu-stroke-strong);
+  background: var(--pizhu-bg-1);
+  color: var(--pizhu-text-2);
+  font-size: 12px;
+  font-family: var(--pizhu-font);
+  padding: 4px 8px;
+  border-radius: var(--pizhu-radius-c);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pizhu-pop-sort:hover {
+  background: color-mix(in srgb, var(--pizhu-text-1) 5%, transparent);
+}
+.pizhu-pop-icon-btn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--pizhu-text-2);
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 7px;
+  margin-left: 4px;
+  border-radius: var(--pizhu-radius-c);
+  cursor: pointer;
+}
+.pizhu-pop-icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pizhu-text-1) 6%, transparent);
+}
+.pizhu-pop-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ===== 颜色选择器（批注卡 / 输入浮层）===== */
+.pizhu-prompt-colors, .pizhu-card-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pizhu-prompt-colors {
+  margin-top: 12px;
+}
+.pizhu-card-colors {
+  margin-top: 10px;
+}
+.pizhu-color-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--pizhu-stroke-strong);
+  cursor: pointer;
+  transition: transform var(--pizhu-dur) var(--pizhu-ease);
+}
+.pizhu-color-swatch:hover {
+  transform: scale(1.12);
+}
+.pizhu-color-auto {
+  background-image: conic-gradient(#0F6CBD, #C42B1C, #107C10, #8764B8, #CF8A00, #0F6CBD) !important;
+}
+.pizhu-color-on {
+  border-color: var(--pizhu-text-1);
+  box-shadow: 0 0 0 1px var(--pizhu-bg-1);
 }
 `
