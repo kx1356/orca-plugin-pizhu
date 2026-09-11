@@ -1,8 +1,9 @@
 // 批注插件入口：注册渲染器、命令、工具栏按钮、顶栏按钮、快捷键
 import { setupL10N, t } from "./libs/l10n"
 import zhCN from "./translations/zhCN"
-import AnnotationInline, { AnnotationCard, setPluginPrefix as setRendererPrefix } from "./renderer"
+import AnnotationInline, { AnnotationCard, AnnotationRefInline, setPluginPrefix as setRendererPrefix } from "./renderer"
 import { registerCommands, unregisterCommands } from "./commands"
+import { generateSummary } from "./summary"
 import { findViewPanelByView } from "./ann"
 import AnnPopupButton, { setPluginPrefix as setPopupPrefix } from "./popup"
 import { setPluginPrefix as setCachePrefix } from "./annCache"
@@ -86,6 +87,12 @@ const SCHEMA = {
       { label: "实线", value: "solid" },
     ],
   },
+  summaryAlias: {
+    type: "string",
+    label: "批注汇总页标题",
+    description: "生成批注汇总页时使用的页面标题/别名；该页面由插件维护，刷新会重建其内容。",
+    defaultValue: "批注汇总",
+  },
 }
 
 /** 把批注颜色/线型设置写入 body CSS 变量 */
@@ -131,11 +138,30 @@ export async function load(_name: string) {
   setPopupPrefix(pluginName)
   setCachePrefix(pluginName)
 
-  // 1. 行内渲染器：波浪线 + 角标
+  // 1. 行内渲染器：波浪线 + 角标；汇总页跳转芯片
   orca.renderers.registerInline("pizhu.ann", false, AnnotationInline)
+  orca.renderers.registerInline("pizhu.ref", false, AnnotationRefInline)
 
   // 2. 命令
   registerCommands(pluginName)
+
+  // 2a. 汇总页命令
+  const summaryCmd = `${pluginName}.ann.summary`
+  if (orca.state.commands[summaryCmd] == null) {
+    orca.commands.registerCommand(
+      summaryCmd,
+      async () => {
+        try {
+          const { pageId, count } = await generateSummary(pluginName)
+          orca.notify?.("success", t("Summary page updated (${count})", { count: String(count) }))
+          orca.nav.goTo("block", { blockId: pageId })
+        } catch (e: any) {
+          orca.notify?.("error", `${t("Failed to generate summary")}: ${e?.message ?? e}`)
+        }
+      },
+      "生成批注汇总页",
+    )
+  }
 
   // 2b. 清理旧版本遗留的 pizhu.panel 侧栏（v3.2.0 起改为顶栏下拉卡）
   try {
@@ -208,6 +234,12 @@ export async function unload() {
 
   // 反注册全部
   orca.renderers.unregisterInline("pizhu.ann")
+  orca.renderers.unregisterInline("pizhu.ref")
+  try {
+    orca.commands.unregisterCommand(`${pluginName}.ann.summary`)
+  } catch {
+    /* ignore */
+  }
   try {
     orca.toolbar.unregisterToolbarButton(`${pluginName}.ann.add`)
   } catch {

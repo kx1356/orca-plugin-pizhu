@@ -166,6 +166,28 @@ export default function AnnotationInline({
   )
 }
 
+/** 汇总页里的跳转芯片：点击跳到批注所在块 */
+export function AnnotationRefInline({ data }: { data: any }) {
+  const target = Number(data?.v)
+  const color = typeof data?.color === "string" && data.color ? data.color : undefined
+  const label = data?.ordinal ? `#${data.ordinal}` : "↗"
+  const onClick = (e: any) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (Number.isFinite(target)) orca.nav.goTo("block", { blockId: target })
+  }
+  return (
+    <span
+      className="orca-inline pizhu-ref-chip"
+      style={color ? { color, borderColor: color } : undefined}
+      onClick={onClick}
+      title={t("Jump to annotation")}
+    >
+      {label}
+    </span>
+  )
+}
+
 /** 批注卡浮层：显示原文、编辑批注、选择颜色、保存/删除 */
 export function AnnotationCard() {
   const card = useSnapshot(annCard)

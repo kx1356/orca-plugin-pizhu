@@ -590,4 +590,26 @@ export const PIZHU_CSS = `
   border-color: var(--pizhu-text-1);
   box-shadow: 0 0 0 1px var(--pizhu-bg-1);
 }
+
+/* ===== 汇总页跳转芯片 ===== */
+.pizhu-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3em;
+  padding: 0 0.4em;
+  margin: 0 2px;
+  border: 1px solid var(--pizhu-ann-color, var(--pizhu-accent));
+  border-radius: 999px;
+  color: var(--pizhu-ann-color, var(--pizhu-accent));
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+}
+.pizhu-ref-chip:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
 `
